@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: timesheet
       POSTGRES_PASSWORD: timesheet # local-only database, not exposed beyond localhost

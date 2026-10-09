@@ -1,0 +1,72 @@
+# golangci-lint v2. Rationale and sources for each rule: .claude/skills/coding-standards/SKILL.md
+version: "2"
+
+run:
+  build-tags:
+    - integration
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - revive        # golint successor: naming, initialisms, error strings, receivers, doc comments
+    - errname       # sentinel errors ErrX, error types XError
+    - errorlint     # errors.Is/As and %w wrapping
+    - bodyclose     # HTTP response bodies closed
+    - noctx         # outbound HTTP requests carry a context
+    - contextcheck  # contexts are inherited, not recreated
+    - rowserrcheck  # rows.Err() checked
+    - sqlclosecheck # pgx rows closed
+    - gosec         # security problems
+    - gocritic      # bug and style diagnostics
+    - misspell
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - predeclared
+    - nolintlint    # every //nolint names a linter and a reason
+    - sloglint      # constant slog messages (S4) and snake_case keys (N10)
+  settings:
+    revive:
+      rules:
+        - name: var-naming        # MixedCaps and initialisms (ID, URL, HTTP)
+        - name: receiver-naming
+        - name: error-naming
+        - name: error-strings
+        - name: error-return
+        - name: errorf
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: exported
+        - name: package-comments
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: unexported-return
+        - name: time-naming
+        - name: blank-imports
+        - name: dot-imports
+        - name: range
+        - name: redefines-builtin-id
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    misspell:
+      locale: US
+    sloglint:
+      static-msg: true        # untrusted text goes in attributes, never the message (S4)
+      key-naming-case: snake  # N10
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [gosec, unparam, noctx]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - timesheet-bot

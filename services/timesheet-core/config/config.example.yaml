@@ -1,0 +1,57 @@
+# Copy to config/config.yaml. No secrets here: tokens come from environment variables.
+timezone: Asia/Ho_Chi_Minh
+
+# Your Atlassian account id (Jira profile URL: .../jira/people/<accountId>).
+jira_account_id: "REPLACE_ME"
+
+# Your Slack member id (Slack profile > ... > Copy member ID).
+slack_user_id: "REPLACE_ME"
+
+daily_cap_minutes: 480
+per_key_minutes: 45
+
+# https://api.tempo.io/4 (universal), https://api.eu.tempo.io/4, https://api.us.tempo.io/4
+tempo_base_url: https://api.tempo.io/4
+
+# Messages without an issue key in these channels count for the given issue.
+channel_defaults:
+  proj-gcm: GCM-1
+  proj-hub: HUB-1
+
+# Where the week's Slack messages come from.
+activity:
+  # slack: Slack search.messages with SLACK_USER_TOKEN (needs a Slack app).
+  # file: <file_dir>/<ISO week>.json, written by the allocation-agent collector; no Slack token.
+  source: slack
+  # Absolute, or relative to THIS file's folder. The default is the repository root's
+  # data/activity, which docker compose mounts at /data/activity.
+  file_dir: ../../../data/activity
+
+# Where `submit` writes the approved timesheet: tempo, mavenlink, or both.
+submit_targets: [tempo]
+
+# Read only when submit_targets has mavenlink.
+mavenlink:
+  # bearer: MAVENLINK_API_TOKEN, from an OAuth app an account administrator registered.
+  # cookie: MAVENLINK_SESSION_COOKIE, copied from a logged-in browser (undocumented by Kantata).
+  auth: bearer
+  # Empty: https://api.mavenlink.com/api/v1 for bearer, https://27global.mavenlink.com/api/v1 for cookie.
+  base_url: ""
+  # cookie only. Empty: https://27global.mavenlink.com/timesheets (holds the CSRF token).
+  csrf_page_url: ""
+  # Send one timesheet submission per Mavenlink project once every entry is created.
+  submit_for_approval: true
+  # Fallback for issues no rule matches (0: none). Mavenlink project, task and role ids.
+  default_workspace_id: 0
+  default_story_id: 0
+  default_role_id: 0
+  # Jira issues to Mavenlink projects. Set issue_key, jira_project or both; story_id,
+  # role_id and billable are optional.
+  mappings:
+    - jira_project: GCM
+      workspace_id: 1000001
+      story_id: 0
+      role_id: 0
+    - issue_key: GCM-12
+      workspace_id: 1000002
+      billable: false

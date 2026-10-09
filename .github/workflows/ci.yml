@@ -1,0 +1,107 @@
+# Action SHAs resolved from each action's official releases on 2026-10-09
+# (devops-engineer re-verifies them through official-source-verifier).
+#
+# CI runs the same make targets as `make ci` from the root, split into parallel jobs. Exact differences:
+# - lint: golangci-lint-action runs `golangci-lint run` in services/timesheet-core (make: `golangci-lint
+#   run ./...`), with the version read from the service Makefile, so the two cannot drift.
+# - test: CI runs `make test-race`, which runs every test that `make test` runs, so `make test` is skipped.
+#   CI also runs `make test-int` against a Postgres 17 service container and `make cover`; `make ci` runs
+#   neither, because both need a database or are reports.
+# - build: CI runs `docker build` (it compiles the same ./cmd/timesheet inside the image); `make ci` runs
+#   `make build` (go build to bin/). CI does not run `make build`.
+# - proto: CI runs `make proto-lint` only when api/proto has .proto files; `make ci` always calls it and it
+#   prints "no proto files yet" when there are none.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: services/timesheet-core
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proto:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # hashFiles works in a step `if`, not in a job `if` (docs.github.com, context availability).
+      - if: hashFiles('/api/proto/**/*.proto') != ''
+        uses: bufbuild/buf-action@85aebf73123b5c15fd5528aaecbf9129cddf7fa7 # v1.6.0
+        with:
+          version: 1.73.0
+          setup_only: true
+      # buf breaking compares against the local branch main; a pull request checkout has none.
+      - if: github.event_name == 'pull_request' && hashFiles('/api/proto/**/*.proto') != ''
+        run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/heads/main
+      - if: hashFiles('/api/proto/**/*.proto') != ''
+        run: make proto-lint
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: services/timesheet-core/go.mod
+          cache-dependency-path: services/timesheet-core/go.sum
+      - id: tools
+        run: echo "golangci-lint=$(make -s print-GOLANGCI_LINT_VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: ${{ steps.tools.outputs.golangci-lint }}
+          working-directory: services/timesheet-core
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: timesheet
+          POSTGRES_PASSWORD: timesheet # CI-only throwaway database
+          POSTGRES_DB: timesheet
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U timesheet -d timesheet"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://timesheet:timesheet@localhost:5432/timesheet?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: services/timesheet-core/go.mod
+          cache-dependency-path: services/timesheet-core/go.sum
+      - run: make test-race
+      - run: make test-int
+      - run: make cover
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: services/timesheet-core/go.mod
+          cache-dependency-path: services/timesheet-core/go.sum
+      - run: make vuln
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build -t timesheet-bot:ci .
+        # working directory services/timesheet-core is the build context

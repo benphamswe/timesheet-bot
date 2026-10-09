@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # Each ecosystem gets one grouped pull request for minor and patch updates; majors stay separate.
+  - package-ecosystem: gomod
+    directory: /services/timesheet-core
+    schedule: { interval: weekly }
+    groups:
+      go-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: /services/timesheet-core
+    schedule: { interval: weekly }
+    groups:
+      docker-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  # Image tags in the root docker-compose.yml (postgres).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      compose-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]

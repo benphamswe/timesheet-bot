@@ -1,0 +1,18 @@
+services/*/bin/
+services/timesheet-core/config/config.yaml
+.env
+.env.*
+!.env.example
+.envrc
+*.out
+
+# Activity week files hold Slack message text; only the folder is kept.
+data/activity/*.json
+.claude/settings.local.json
+CLAUDE.local.md
+.claude/agent-memory-local/
+.claude/worktrees/
+
+# Python service (planned P3)
+services/allocation-agent/.venv/
+__pycache__/

@@ -1,0 +1,7 @@
+bin/
+config/config.yaml
+*.out
+# Defence in depth: env files never enter the build context or an image. The root .env is
+# already outside this context (services/timesheet-core).
+.env
+.env.*

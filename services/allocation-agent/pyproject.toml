@@ -1,0 +1,48 @@
+[project]
+name = "allocation-agent"
+version = "0.1.0"
+description = "timesheet-bot Python service: the Slack activity collector (Phase 1.5) and, later, the allocation agent (Phase 3)."
+requires-python = ">=3.12"
+dependencies = [
+    "claude-agent-sdk==0.2.165",
+    "pydantic>=2.9,<3",
+    "pyyaml>=6.0.2,<7",
+]
+
+[project.scripts]
+collect = "allocation_agent.activity.cli:main"
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4.23,<5",
+    "pytest>=8.3,<9",
+    "ruff>=0.8,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/allocation_agent"]
+
+[tool.uv]
+# ADR-0007 production-readiness ruling: uv is CONDITIONAL, so the version is pinned exactly and
+# installs use `uv sync --locked`.
+required-version = "==0.12.21"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = ["--import-mode=importlib", "-ra"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105"]

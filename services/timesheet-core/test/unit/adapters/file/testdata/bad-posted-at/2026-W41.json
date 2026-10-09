@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "week": "2026-W41",
+  "slack_user_id": "U0123ABCD",
+  "generated_at": "2026-10-09T16:00:00+07:00",
+  "source": "slack-mcp",
+  "future_field": {
+    "x": 1
+  },
+  "messages": [
+    {
+      "ts": "1791135000.000100",
+      "channel_id": "C01",
+      "channel_name": "proj-x",
+      "posted_at": "2026-10-05 10:00",
+      "text": "standup GCM-1",
+      "permalink": "https://example.slack.com/archives/C01/p1791135000000100",
+      "thread_ts": null,
+      "reactions": [
+        "eyes"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(go build *)",
+      "Bash(go test *)",
+      "Bash(go vet *)",
+      "Bash(go list *)",
+      "Bash(go doc *)",
+      "Bash(go mod tidy)",
+      "Bash(go version)",
+      "Bash(gofmt *)",
+      "Bash(make build)",
+      "Bash(make test)",
+      "Bash(make lint)",
+      "Bash(make test-int)",
+      "Bash(docker compose ps *)",
+      "Bash(docker compose build *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(golangci-lint run *)",
+      "Bash(golangci-lint config verify)",
+      "Bash(make fix)",
+      "Bash(make test-race)",
+      "Bash(make cover)",
+      "Bash(make fuzz)",
+      "Bash(make vuln)",
+      "Bash(make arch)",
+      "Bash(make ci)",
+      "Bash(govulncheck *)",
+      "Bash(go tool cover *)",
+      "Bash(gh auth status)",
+      "Bash(gh repo view *)",
+      "Bash(gh issue list *)",
+      "Bash(gh issue view *)",
+      "Bash(gh label list *)",
+      "Bash(go -C services/timesheet-core test *)",
+      "Bash(go -C services/timesheet-core build *)",
+      "Bash(go -C services/timesheet-core vet *)",
+      "Bash(go -C services/timesheet-core list *)",
+      "Bash(go -C services/timesheet-core version)",
+      "Bash(go -C services/timesheet-core run golang.org/x/vuln/cmd/govulncheck@*)",
+      "Bash(make -C services/timesheet-core *)",
+      "Bash(golangci-lint config verify -c services/timesheet-core/.golangci.yml)",
+      "Bash(make proto-lint)",
+      "Bash(docker compose config -q)",
+      "Bash(docker compose config --quiet)",
+      "Bash(docker compose config --no-interpolate)",
+      "Bash(docker compose --profile cli config -q)"
+      // ],
+      // "deny": [
+      //   "Bash(printenv *)",
+      //   "Bash(printenv)",
+      //   "Bash(env)",
+      //   "Read(./.env)",
+      //   "Read(**/.env)",
+      //   "Read(**/.env.local)",
+      //   "Read(**/.env.*.local)",
+      //   "Read(**/.env.development)",
+      //   "Read(**/.env.production)",
+      //   "Read(**/.env.test)",
+      //   "Edit(**/.env)",
+      //   "Edit(**/.env.local)",
+      //   "Edit(**/.env.*.local)",
+      //   "Edit(**/.env.development)",
+      //   "Edit(**/.env.production)",
+      //   "Edit(**/.env.test)",
+      //   "Write(**/.env)",
+      //   "Write(**/.env.local)",
+      //   "Write(**/.env.*.local)",
+      //   "Write(**/.env.development)",
+      //   "Write(**/.env.production)",
+      //   "Write(**/.env.test)"
+    ],
+    "ask": [
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(docker compose run *)",
+      "Bash(gh issue create *)",
+      "Bash(gh issue edit *)",
+      "Bash(gh issue close *)",
+      "Bash(gh label create *)",
+      "Bash(gh api *)"
+    ]
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-secrets.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-bash.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/format-go.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/session-context.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/route-request.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+# Local development settings for timesheet-bot.
+#
+#   cp .env.example .env
+#
+# .env is gitignored, written by the owner only, and never committed.
+# Tokens: fill in your local .env (gitignored, written by the owner only) or export in
+# ~/.zshrc; never commit. Never put a value in this .env.example file.
+# If a token ever leaks (chat, log, commit), rotate it.
+#
+# Who reads .env:
+#   - `make -C services/timesheet-core run ARGS="..."` and `make test-int` load it. A variable
+#     already exported in your shell wins over the value here.
+#   - `docker compose` reads it for ${VAR} interpolation (the shell wins), and the app service
+#     also loads it with `env_file` (optional). `environment:` wins over `env_file`.
+# Go has no built-in .env loading. See docs/operations/configuration.md.
+
+# --- Local database (docker compose up -d db) -------------------------------------------
+# Local-only defaults that match the db service in docker-compose.yml. Not secrets.
+# Used by `make run`. Inside compose, the app service sets its own DATABASE_URL (host db).
+DATABASE_URL=postgres://timesheet:timesheet@localhost:5432/timesheet?sslmode=disable
+# Used by `make test-int`.
+TEST_DATABASE_URL=postgres://timesheet:timesheet@localhost:5432/timesheet?sslmode=disable
+
+# --- Non-secret runtime settings ---------------------------------------------------------
+# None. Timezone, account IDs, caps and the Tempo base URL live in
+# services/timesheet-core/config/config.yaml.
+
+# --- Tokens ------------------------------------------------------------------------------
+# Leave empty here. Fill in your local .env (gitignored, written by the owner only) or
+# export in ~/.zshrc; never commit. An empty KEY= never blanks a token exported in the shell.
+
+# Slack user token. Needed by every `plan`.
+SLACK_USER_TOKEN=
+# Tempo API token. Needed by `submit`.
+TEMPO_API_TOKEN=
+# Jira site, for example https://<site>.atlassian.net. Not secret.
+JIRA_BASE_URL=
+# Jira account email, for example <name>@<company>.com. Not secret.
+JIRA_EMAIL=
+# Jira API token. Needed by every `plan`.
+JIRA_API_TOKEN=

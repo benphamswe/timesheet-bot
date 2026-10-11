@@ -16,3 +16,16 @@ type WorkActivity struct {
 	ThreadTS    string
 	IssueKeys   []IssueKey
 }
+
+// ReportLine is one line of a timesheet summary the owner wrote in Slack:
+// time spent on a project on a day. It is shared between the Activity
+// context, whose collector may deliver lines an LLM already parsed (activity
+// file v2), and the Allocation context, which turns lines into entries.
+type ReportLine struct {
+	Date            string // YYYY-MM-DD
+	Project         string // as written in the report; matched to Mavenlink case-insensitively
+	Minutes         int
+	Notes           string
+	SourceTS        string // ts of the Slack message the line came from, when known
+	SourceChannelID string // channel of that message, when known
+}

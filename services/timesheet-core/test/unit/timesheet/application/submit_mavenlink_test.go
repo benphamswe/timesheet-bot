@@ -16,19 +16,26 @@ import (
 
 var errMavenlink = errors.New("mavenlink 500")
 
-// stubPlacements places GCM-1 in project 7 (task 70, role 5) and GCM-2 in
-// project 8; any other key, or a key in fail, has no placement.
-type stubPlacements struct{ fail map[kernel.IssueKey]bool }
+// stubPlacements places GCM-1 and report project "Atlas" in project 7 (task
+// 70, role 5) and GCM-2 in project 8; anything else, or a key in fail, has no
+// placement. It records every report project it is asked about.
+type stubPlacements struct {
+	fail     map[kernel.IssueKey]bool
+	projects *[]string
+}
 
-func (s stubPlacements) Resolve(k kernel.IssueKey) (application.MavenlinkPlacement, error) {
+func (s stubPlacements) Resolve(k kernel.IssueKey, project string) (application.MavenlinkPlacement, error) {
+	if s.projects != nil && project != "" {
+		*s.projects = append(*s.projects, project)
+	}
 	switch {
 	case s.fail[k]:
-	case k == "GCM-1":
+	case k == "GCM-1", k == "" && strings.EqualFold(project, "atlas"):
 		return application.MavenlinkPlacement{WorkspaceID: 7, StoryID: 70, RoleID: 5}, nil
 	case k == "GCM-2":
 		return application.MavenlinkPlacement{WorkspaceID: 8}, nil
 	}
-	return application.MavenlinkPlacement{}, fmt.Errorf("%w: %s", application.ErrNoMavenlinkPlacement, k)
+	return application.MavenlinkPlacement{}, fmt.Errorf("%w: %s%s", application.ErrNoMavenlinkPlacement, k, project)
 }
 
 type submission struct {

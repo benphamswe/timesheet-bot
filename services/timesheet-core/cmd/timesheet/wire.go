@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/slack-go/slack"
@@ -10,6 +12,7 @@ import (
 	fileactivity "timesheet-bot/internal/activity/infrastructure/file"
 	slackactivity "timesheet-bot/internal/activity/infrastructure/slack"
 	alloc "timesheet-bot/internal/allocation/domain"
+	"timesheet-bot/internal/allocation/infrastructure/reportparser"
 	"timesheet-bot/internal/config"
 	"timesheet-bot/internal/interfaces/cli"
 	"timesheet-bot/internal/platform/db"
@@ -35,7 +38,9 @@ func buildApp(ctx context.Context, configPath string, needs cli.Needs) (*cli.App
 	if cfg.Activity.Source == config.ActivitySlack {
 		names = append(names, config.EnvSlackUserToken)
 	}
-	names = append(names, config.EnvJiraBaseURL, config.EnvJiraEmail, config.EnvJiraToken)
+	if !cfg.ReportMode() {
+		names = append(names, config.EnvJiraBaseURL, config.EnvJiraEmail, config.EnvJiraToken)
+	}
 	if needs.DB {
 		names = append(names, config.EnvDatabaseURL)
 	}
@@ -61,20 +66,36 @@ func buildApp(ctx context.Context, configPath string, needs cli.Needs) (*cli.App
 		repo = postgres.NewRepository(pool)
 	}
 
+	source := activitySource(cfg, env, hc)
 	app.Propose = &application.ProposeHandler{
 		Repo:            repo,
-		Source:          activitySource(cfg, env, hc),
-		Issues:          jira.NewClient(env[config.EnvJiraBaseURL], env[config.EnvJiraEmail], env[config.EnvJiraToken], hc),
+		Source:          source,
 		Policies:        []alloc.Policy{alloc.RulePolicy{}},
 		Clock:           clock,
-		UserAccountID:   cfg.JiraAccountID,
+		UserAccountID:   cfg.OwnerID(),
 		DailyCap:        cfg.DailyCap,
 		PerKey:          cfg.PerKey,
 		ChannelDefaults: cfg.Channels,
 	}
-	app.Transition = &application.TransitionHandler{Repo: repo, Clock: clock, UserAccountID: cfg.JiraAccountID}
+	switch {
+	case cfg.ReportParserLLM():
+		reports, ok := source.(*fileactivity.Collector)
+		if !ok { // config.Load already requires activity.source: file in report mode
+			return nil, errors.New("report.parser: llm needs activity.source: file")
+		}
+		app.Propose.Reports = reports
+		app.Propose.Policies = []alloc.Policy{alloc.ReportPolicy{Precomputed: true, Location: cfg.Location}}
+	case cfg.ReportMode():
+		app.Propose.Policies = []alloc.Policy{alloc.ReportPolicy{Parser: reportparser.New(), Location: cfg.Location}}
+	default:
+		app.Propose.Issues = jira.NewClient(env[config.EnvJiraBaseURL], env[config.EnvJiraEmail], env[config.EnvJiraToken], hc)
+	}
+	if cfg.SubmitsTo(config.TargetMavenlink) {
+		app.Propose.Placements = mavenlinkMapping(cfg.Mavenlink)
+	}
+	app.Transition = &application.TransitionHandler{Repo: repo, Clock: clock, UserAccountID: cfg.OwnerID()}
 	if needs.Submit {
-		app.Submit = &application.SubmitHandler{Repo: repo, Clock: clock, UserAccountID: cfg.JiraAccountID}
+		app.Submit = &application.SubmitHandler{Repo: repo, Clock: clock, UserAccountID: cfg.OwnerID()}
 		if cfg.SubmitsTo(config.TargetTempo) {
 			app.Submit.Gateway = tempo.NewClient(cfg.TempoBaseURL, env[config.EnvTempoToken], hc)
 		}
@@ -88,6 +109,8 @@ func buildApp(ctx context.Context, configPath string, needs cli.Needs) (*cli.App
 	}
 	return app, nil
 }
+
+var _ application.ReportLineSource = (*fileactivity.Collector)(nil)
 
 // activitySource is the configured [application.ActivitySource]: Slack
 // search, or the allocation-agent's week files.
@@ -132,6 +155,7 @@ func mavenlinkMapping(m config.Mavenlink) application.MavenlinkMapping {
 		out.Rules = append(out.Rules, application.MavenlinkRule{
 			IssueKey:    kernel.IssueKey(r.IssueKey), // validated by config.Load
 			JiraProject: r.JiraProject,
+			Project:     strings.TrimSpace(r.Project),
 			WorkspaceID: r.WorkspaceID,
 			StoryID:     r.StoryID,
 			RoleID:      r.RoleID,

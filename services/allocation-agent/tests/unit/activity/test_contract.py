@@ -108,13 +108,12 @@ GO_FIXTURES = REPO_ROOT / "services/timesheet-core/test/unit/adapters/file/testd
 
 
 @pytest.mark.parametrize(
-    ("case", "valid"), [("happy", True), ("bad-posted-at", False), ("schema-v2", False)]
+    ("case", "valid"), [("happy", True), ("bad-posted-at", False), ("schema-v3", False)]
 )
 def test_go_reader_fixtures_against_schema(schema, case, valid):
-    """Cross-checks the Go reader's test files (read-only) against the shared schema."""
+    """Cross-checks the Go reader's test files (read-only) against the shared v1 schema."""
     path = GO_FIXTURES / case / "2026-W41.json"
-    if not path.is_file():
-        pytest.skip(f"Go fixture {case} not present")
+    assert path.is_file(), f"Go fixture {case} is missing"
     body = json.loads(path.read_text(encoding="utf-8"))
     validator = jsonschema.Draft202012Validator(
         schema, format_checker=jsonschema.Draft202012Validator.FORMAT_CHECKER

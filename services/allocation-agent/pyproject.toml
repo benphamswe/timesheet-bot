@@ -5,6 +5,7 @@ description = "timesheet-bot Python service: the Slack activity collector (Phase
 requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk==0.2.165",
+    "httpx>=0.28,<1",
     "pydantic>=2.9,<3",
     "pyyaml>=6.0.2,<7",
 ]

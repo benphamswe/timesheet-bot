@@ -106,14 +106,19 @@ func (t *Timesheet) Revision() int { return t.revision }
 // SetVersion is called by repositories after a successful save.
 func (t *Timesheet) SetVersion(v int) { t.version = v }
 
-// Entries returns a copy sorted by day, then issue key.
+// Entries returns a copy sorted by day, then issue key, then ID; report
+// entries, which have no issue key, keep the order they were added in
+// (report-01, report-02, ...).
 func (t *Timesheet) Entries() []Entry {
 	out := append([]Entry(nil), t.entries...)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Day != out[j].Day {
 			return out[i].Day.Before(out[j].Day)
 		}
-		return out[i].IssueKey < out[j].IssueKey
+		if out[i].IssueKey != out[j].IssueKey {
+			return out[i].IssueKey < out[j].IssueKey
+		}
+		return out[i].ID < out[j].ID
 	})
 	return out
 }
@@ -148,6 +153,35 @@ func (t *Timesheet) AddEntry(key kernel.IssueKey, issueID int64, day kernel.Work
 	t.entries = append(t.entries, Entry{
 		ID:       fmt.Sprintf("%s/%s/%s", t.id, day, key),
 		IssueKey: key, IssueID: issueID, Day: day, Duration: d, Description: description,
+	})
+	return nil
+}
+
+// AddReportEntry adds a report mode line, time on project as the owner wrote
+// it, while the timesheet is a draft. Unlike [Timesheet.AddEntry] it accepts
+// several entries for one project on one day and a day over the daily cap:
+// the owner's report is the source of truth, and plan warns about the cap
+// instead (ADR-0012). Entry IDs are <timesheet>/<day>/report-NN, numbered per
+// day in the order added.
+func (t *Timesheet) AddReportEntry(project string, day kernel.WorkDay, d kernel.Duration, notes string) error {
+	if t.status != StatusDraft {
+		return ErrNotDraft
+	}
+	if !t.week.Contains(day) {
+		return fmt.Errorf("%w: %s not in %s", ErrDayOutsideWeek, day, t.week)
+	}
+	if project == "" {
+		return ErrNoProject
+	}
+	n := 1
+	for _, e := range t.entries {
+		if e.Day == day && e.IssueKey == "" {
+			n++
+		}
+	}
+	t.entries = append(t.entries, Entry{
+		ID:      fmt.Sprintf("%s/%s/report-%02d", t.id, day, n),
+		Project: project, Day: day, Duration: d, Description: notes,
 	})
 	return nil
 }

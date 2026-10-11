@@ -165,3 +165,45 @@ func TestRoundTripKeepsIDsPerTarget(t *testing.T) {
 		t.Errorf("Get().Entries()[1] = %+v, want no TempoWorklogID and MavenlinkEntryID m-2", e)
 	}
 }
+
+func TestRoundTripReportEntries(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := t.Context()
+	user := "it-" + uuid.NewString() // isolate from other runs
+	week := kernel.WeekID{Year: 2026, Week: 41}
+	mon := week.Days()[0]
+
+	ts := domain.New(uuid.NewString(), user, week, kernel.MustDuration(480), "report", fixedNow)
+	t.Cleanup(func() {
+		if err := repo.Delete(context.Background(), ts.ID()); err != nil {
+			t.Errorf("cleanup Delete(%s): %v", ts.ID(), err)
+		}
+	})
+	// Two lines on one project and day, 9h in total: both allowed in report mode.
+	if err := ts.AddReportEntry("Atlas", mon, kernel.MustDuration(360), "release"); err != nil {
+		t.Fatalf("AddReportEntry: %v", err)
+	}
+	if err := ts.AddReportEntry("Atlas", mon, kernel.MustDuration(180), "hotfix"); err != nil {
+		t.Fatalf("AddReportEntry: %v", err)
+	}
+	if err := ts.Propose(fixedNow); err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	if err := repo.Save(ctx, ts); err != nil {
+		t.Fatalf("Save() error = %v, want nil", err)
+	}
+
+	got, err := repo.Get(ctx, user, week)
+	if err != nil {
+		t.Fatalf("Get(%s, %v) error = %v, want nil", user, week, err)
+	}
+	entries := got.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("Get().Entries() = %+v, want 2 report entries", entries)
+	}
+	for i, notes := range []string{"release", "hotfix"} {
+		if e := entries[i]; e.Project != "Atlas" || e.IssueKey != "" || e.Description != notes {
+			t.Errorf("Get().Entries()[%d] = %+v, want project Atlas, no issue key, notes %q", i, e, notes)
+		}
+	}
+}

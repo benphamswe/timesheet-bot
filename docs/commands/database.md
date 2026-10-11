@@ -11,7 +11,7 @@ export DATABASE_URL='postgres://timesheet:timesheet@localhost:5432/timesheet?ssl
 - This is a **non-secret local default**: the compose database listens only on `127.0.0.1:5432`, and `timesheet:timesheet` is the documented local-only credential (the `guard-secrets` hook allows exactly this DSN).
 - Inside compose, the `app` service uses host `db` instead of `localhost`; `docker-compose.yml` sets that for you.
 - Integration tests read `TEST_DATABASE_URL`, which defaults to the same DSN in `make test-int`.
-- Any other database URL is a secret: keep it in `.env` (owner-only, gitignored) or `~/.zshrc` and refer to it as `${DATABASE_URL}`.
+- Any other database URL is a secret: keep it in `services/timesheet-core/.env` (owner-only, gitignored) or `~/.zshrc` and refer to it as `${DATABASE_URL}`.
 
 ## Start the database
 

@@ -2,9 +2,12 @@ package domain
 
 import "timesheet-bot/internal/shared/kernel"
 
-// ProposedEntry is one suggested worklog line.
+// ProposedEntry is one suggested worklog line. It names either a Jira issue
+// (IssueKey, in jira_keys mode) or a project from the owner's report
+// (Project, in report mode), never both.
 type ProposedEntry struct {
 	IssueKey    kernel.IssueKey
+	Project     string
 	Day         kernel.WorkDay
 	Duration    kernel.Duration
 	Description string
@@ -16,4 +19,5 @@ type Proposal struct {
 	Policy    string
 	Entries   []ProposedEntry
 	Reasoning map[string]string // keyed by day (YYYY-MM-DD)
+	Warnings  []string          // shown by plan; they do not reject the proposal
 }

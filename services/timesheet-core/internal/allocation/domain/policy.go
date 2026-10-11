@@ -19,6 +19,7 @@ type Input struct {
 	DailyCap        kernel.Duration
 	PerKey          kernel.Duration // time credited per issue key per day
 	Feedback        []string        // validation errors or user corrections from a previous attempt
+	ReportLines     []ReportLine    // report.parser: llm; lines the collector already parsed
 }
 
 // Policy turns a week of activity into a proposal.

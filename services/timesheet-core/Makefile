@@ -9,12 +9,14 @@ FUZZTIME              ?= 20s
 build:
 	CGO_ENABLED=0 go build -o bin/timesheet ./cmd/timesheet
 
-# Go does not read .env files itself. LOAD_DOTENV exports the repository-root .env (if present;
-# gitignored, written by the owner only) into the recipe's shell, then restores every variable
-# already exported in your shell (~/.zshrc). So a token set only in .env is used, the shell wins
-# when both set it (as with compose interpolation), and an empty KEY= in .env never clears a
-# shell token. It prints nothing and never echoes a value.
-DOTENV      := ../../.env
+# Go does not read .env files itself. LOAD_DOTENV exports this service's own .env
+# (services/timesheet-core/.env, if present; gitignored, written by the owner only; ADR-0013) into
+# the recipe's shell, then restores every variable already exported in your shell (~/.zshrc). So
+# a token set only in .env is used, the shell wins when both set it, and an empty KEY= in .env
+# never clears a shell token. It prints nothing and never echoes a value. Make runs recipes in
+# this folder, also when called from the root (`make run` fans out with -C), so ./.env resolves
+# here. The ./ matters: `. .env` without a slash would search PATH in a POSIX shell.
+DOTENV      := ./.env
 LOAD_DOTENV  = set -a; if [ -f $(DOTENV) ]; then shell_env=$$(export -p); . $(DOTENV); eval "$$shell_env"; fi; set +a;
 
 # Runs the CLI with go run, e.g. `make -C services/timesheet-core run ARGS="plan --dry-run"`.
@@ -26,7 +28,7 @@ test:
 	go test ./...
 
 # Requires a running Postgres, e.g. `docker compose up -d db`. TEST_DATABASE_URL comes from the
-# shell, then the repository-root .env, then the local compose default.
+# shell, then this service's .env, then the local compose default.
 test-int:
 	$(LOAD_DOTENV) TEST_DATABASE_URL=$${TEST_DATABASE_URL:-postgres://timesheet:timesheet@localhost:5432/timesheet?sslmode=disable} go test -tags=integration ./test/integration/...
 

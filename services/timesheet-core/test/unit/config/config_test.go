@@ -272,7 +272,7 @@ mavenlink:
 	}
 	for _, field := range []string{
 		`unknown target "jira"`, "mavenlink listed twice", `mavenlink.auth: unknown mode "password"`,
-		"mavenlink.mappings[0]: set issue_key, jira_project or both", "mavenlink.mappings[1].issue_key",
+		"mavenlink.mappings[0]: set issue_key, jira_project or project", "mavenlink.mappings[1].issue_key",
 		"mavenlink.mappings[1].jira_project", "mavenlink.mappings[1].workspace_id is required",
 	} {
 		if !strings.Contains(err.Error(), field) {
@@ -340,6 +340,207 @@ func TestLoadRejectsInvalidActivity(t *testing.T) {
 	for _, field := range []string{`activity.source: unknown source "email"`, "activity.file_dir must not be empty"} {
 		if !strings.Contains(err.Error(), field) {
 			t.Errorf("Load() error = %q, want it to mention %q", err, field)
+		}
+	}
+}
+
+func TestLoadReportMode(t *testing.T) {
+	t.Parallel()
+	path := writeConfig(t, `
+slack_user_id: U1
+allocation:
+  mode: report
+report:
+  channel: "#timesheet"
+activity:
+  source: file
+submit_targets: [mavenlink]
+mavenlink:
+  mappings:
+    - project: Atlas
+      workspace_id: 7
+`)
+
+	c, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) error = %v, want nil (jira_account_id is not needed in report mode)", path, err)
+	}
+	if !c.ReportMode() || c.Report.Channel != "timesheet" || c.Report.IncludeSelfDM {
+		t.Errorf("Load() = mode %q, report %+v, want report mode, channel without '#', include_self_dm false when absent", c.Allocation.Mode, c.Report)
+	}
+	if c.OwnerID() != "U1" || c.Mavenlink.Mappings[0].Project != "Atlas" {
+		t.Errorf("Load() owner %q, mapping %+v, want the Slack user as owner and the Atlas project rule", c.OwnerID(), c.Mavenlink.Mappings[0])
+	}
+}
+
+func TestLoadDefaultsToJiraKeysMode(t *testing.T) {
+	t.Parallel()
+	path := writeConfig(t, "jira_account_id: acc-1\nslack_user_id: U1\n")
+	c, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load(%q) error = %v, want nil", path, err)
+	}
+	if c.ReportMode() || c.Allocation.Mode != config.ModeJiraKeys || c.OwnerID() != "acc-1" {
+		t.Errorf("Load() mode %q, owner %q, want jira_keys and the Jira account as owner", c.Allocation.Mode, c.OwnerID())
+	}
+}
+
+func TestLoadRejectsInvalidReportMode(t *testing.T) {
+	t.Parallel()
+	path := writeConfig(t, `
+slack_user_id: U1
+allocation:
+  mode: report
+report:
+  include_self_dm: false
+submit_targets: [tempo, mavenlink]
+`)
+	_, err := config.Load(path)
+	if err == nil {
+		t.Fatalf("Load(%q) error = nil, want an invalid config error", path)
+	}
+	for _, field := range []string{
+		"report: set report.channel, include_self_dm, or both",
+		"submit_targets: tempo needs Jira issues",
+		"activity.source: report mode reads the summaries",
+	} {
+		if !strings.Contains(err.Error(), field) {
+			t.Errorf("Load() error = %q, want it to mention %q", err, field)
+		}
+	}
+	if strings.Contains(err.Error(), "jira_account_id") {
+		t.Errorf("Load() error = %q, want no jira_account_id error in report mode", err)
+	}
+}
+
+// An absent include_self_dm is false, as in the allocation-agent collector, so
+// a report block with neither source is an error.
+func TestLoadReportModeNeedsASource(t *testing.T) {
+	t.Parallel()
+	path := writeConfig(t, "slack_user_id: U1\nallocation:\n  mode: report\nactivity:\n  source: file\nsubmit_targets: [mavenlink]\n")
+	if _, err := config.Load(path); err == nil || !strings.Contains(err.Error(), "report: set report.channel, include_self_dm, or both") {
+		t.Errorf("Load() error = %v, want the no-report-source error", err)
+	}
+}
+
+func TestLoadReportChannelNames(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		channel, want string
+		ok            bool
+	}{
+		{channel: "timesheet", want: "timesheet", ok: true},
+		{channel: "#team.time_sheet-2", want: "team.time_sheet-2", ok: true},
+		{channel: "Timesheet", ok: false},
+		{channel: "time sheet", ok: false},
+		{channel: "#", want: "", ok: true}, // stripped to empty: no channel; the self-DM is the source
+	}
+	for _, tt := range tests {
+		t.Run(tt.channel, func(t *testing.T) {
+			t.Parallel()
+			path := writeConfig(t, "slack_user_id: U1\nallocation:\n  mode: report\nreport:\n  channel: \""+tt.channel+
+				"\"\n  include_self_dm: true\nactivity:\n  source: file\nsubmit_targets: [mavenlink]\n")
+			c, err := config.Load(path)
+			if tt.ok {
+				if err != nil || c.Report.Channel != tt.want {
+					t.Errorf("Load(channel %q) = %+v, %v, want channel %q", tt.channel, c, err, tt.want)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "report.channel") {
+				t.Errorf("Load(channel %q) error = %v, want a report.channel error", tt.channel, err)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsUnknownAllocationMode(t *testing.T) {
+	t.Parallel()
+	path := writeConfig(t, "jira_account_id: acc-1\nslack_user_id: U1\nallocation:\n  mode: hours\n")
+	if _, err := config.Load(path); err == nil || !strings.Contains(err.Error(), `allocation.mode: unknown mode "hours"`) {
+		t.Errorf("Load() error = %v, want an unknown allocation.mode error", err)
+	}
+}
+
+func TestLoadReportParser(t *testing.T) {
+	t.Parallel()
+	report := "slack_user_id: U1\nallocation:\n  mode: report\nreport:\n  include_self_dm: true\n%sactivity:\n  source: file\nsubmit_targets: [mavenlink]\n"
+	tests := []struct {
+		name, extra string
+		wantLLM     bool
+	}{
+		{name: "default manual", extra: ""},
+		{name: "llm with the collector's llm block", wantLLM: true,
+			extra: "  parser: llm\nllm:\n  provider: deepseek\n  model: deepseek-flash\n  base_url: https://api.deepseek.com\n  timeout_seconds: 60\n  max_retries: 2\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// The llm block is top level; it follows the report block's keys here only for the file layout.
+			body := strings.Replace(report, "%s", tt.extra, 1)
+			path := writeConfig(t, body)
+			c, err := config.Load(path)
+			if err != nil {
+				t.Fatalf("Load() error = %v, want nil (the llm block is the collector's and is ignored)", err)
+			}
+			if c.ReportParserLLM() != tt.wantLLM {
+				t.Errorf("Load().ReportParserLLM() = %v, want %v (parser %q)", c.ReportParserLLM(), tt.wantLLM, c.Report.Parser)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsUnknownReportParser(t *testing.T) {
+	t.Parallel()
+	path := writeConfig(t, "jira_account_id: acc-1\nslack_user_id: U1\nreport:\n  parser: regex\n")
+	if _, err := config.Load(path); err == nil || !strings.Contains(err.Error(), `report.parser: unknown parser "regex", want manual or llm`) {
+		t.Errorf("Load() error = %v, want an unknown report.parser error", err)
+	}
+}
+
+func TestLoadParserLLMOnlyMattersInReportMode(t *testing.T) {
+	t.Parallel()
+	path := writeConfig(t, "jira_account_id: acc-1\nslack_user_id: U1\nreport:\n  parser: llm\n")
+	c, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+	if c.ReportParserLLM() {
+		t.Errorf("Load().ReportParserLLM() = true in jira_keys mode, want false")
+	}
+}
+
+func TestLoadRejectsAmbiguousMavenlinkRules(t *testing.T) {
+	t.Parallel()
+	path := writeConfig(t, `
+jira_account_id: acc-1
+slack_user_id: U1
+submit_targets: [mavenlink]
+mavenlink:
+  mappings:
+    - project: Atlas
+      workspace_id: 7
+    - issue_key: GCM-12
+      workspace_id: 8
+    - project: "  atlas "
+      workspace_id: 9
+    - issue_key: gcm-12
+      workspace_id: 10
+    - project: Beacon
+      jira_project: GCM
+      workspace_id: 11
+`)
+	_, err := config.Load(path)
+	if err == nil {
+		t.Fatalf("Load(%q) error = nil, want an ambiguous mapping error", path)
+	}
+	for _, want := range []string{
+		`mavenlink.mappings[0] and [2]: both map project "  atlas "`,
+		`mavenlink.mappings[1] and [3]: both map issue_key "gcm-12"`,
+		"mavenlink.mappings[4]: project (report mode) cannot be combined with issue_key or jira_project",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Load() error = %q, want it to mention %q", err, want)
 		}
 	}
 }

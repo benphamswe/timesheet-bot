@@ -65,5 +65,10 @@
       "permalink": "https://example.slack.com/archives/C03/p1791356400000100",
       "thread_ts": null
     }
-  ]
+  ],
+  "parser": {
+    "kind": "llm",
+    "provider": "deepseek",
+    "model": "deepseek-flash"
+  }
 }

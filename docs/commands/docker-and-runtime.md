@@ -26,33 +26,111 @@ docker compose build app
 - **When to use it**: after any code change, before `docker compose run`. `run` does not rebuild an existing image on its own.
 - **Expected**: exit 0. Confirmed 2026-10-09.
 
+### Build the compose `collector` image
+
+```bash
+docker compose --profile collect build collector
+```
+
+- **Run from**: the repository root.
+- **What it does**: builds `./services/allocation-agent` (the Slack activity collector, `collect`) as image `timesheet-bot-collector`: uv 0.12.21 installs the locked dependencies (`uv sync --locked --no-dev --no-editable`) into a `python:3.12-slim-bookworm` image; both base images are pinned by digest. The `claude-agent-sdk` wheel bundles the Claude Code CLI, so no Node.js is needed. The image runs as uid 1000 and mirrors the repository layout under `/repo`, so the collector finds `config.yaml` and `data/activity/` where compose mounts them.
+- **When to use it**: after changing `services/allocation-agent/Dockerfile`, `.dockerignore`, `pyproject.toml`, `uv.lock` or `src/`.
+- **Expected**: exit 0; see the [verification record](#verification-record-2026-10-10).
+- **Not usable for collection yet**: the container has no claude.ai login, so `docker compose run --rm collector --week <week>` fails its preflight with `MCP server "claude.ai Slack" not found`. Collect on the host with `make collect` ([activity collection](activity-collection.md)). The credential options are in [ADR-0013](../adr/0013-per-service-env-files.md#collector-credentials-in-a-container).
+
 ### Validate the compose file
 
 ```bash
 docker compose config -q
 docker compose --profile cli config -q
+docker compose --profile cli --profile collect config --quiet
 ```
 
 - **Run from**: the repository root.
-- **What it does**: parses and validates `docker-compose.yml` and prints nothing on success. The `app` service sits in profile `cli`, so the second form also checks it.
+- **What it does**: parses and validates `docker-compose.yml` and prints nothing on success. The `app` service sits in profile `cli` and `collector` in profile `collect`, so the later forms also check them.
 - **When to use it**: after editing `docker-compose.yml`.
-- **Expected**: no output, exit 0. Both confirmed 2026-10-09.
-- **Warnings**: if a secret is set neither in your shell nor in `.env`, each command warns `The "SLACK_USER_TOKEN" variable is not set. Defaulting to a blank string.` (one line per variable, names only). Set it in `.env` (owner-only, gitignored) or `~/.zshrc`; commands that do not need it, such as `docker compose up -d db`, still work. With a `.env` copied from `.env.example`, the empty lines silence the warning.
-- **Note**: never run a bare `docker compose config` or `docker compose config --environment`; both print resolved values, which include the exported values of `SLACK_USER_TOKEN`, `TEMPO_API_TOKEN` and `JIRA_API_TOKEN`. To read the file's structure, use `docker compose config --no-interpolate`, which leaves variables unresolved and prints the token entries as `${SLACK_USER_TOKEN}` and so on, and the `env_file` entry as `path: <repo>/.env, required: false` (confirmed 2026-10-09). The project permissions allow `docker compose config -q`, `--quiet` and `--no-interpolate`, plus `docker compose --profile cli config -q`, without a prompt; any other form prompts.
+- **Expected**: no output, exit 0, with or without the service `.env` files (both are `required: false`). Confirmed 2026-10-10 with neither file present. Since [ADR-0013](../adr/0013-per-service-env-files.md) no secret is interpolated, so the old `The "SLACK_USER_TOKEN" variable is not set` warnings no longer appear.
+- **Note**: never run a bare `docker compose config` or `docker compose config --environment`; both print resolved values, which include every value loaded from `services/timesheet-core/.env` and `services/allocation-agent/.env`. To read the file's structure, use `docker compose config --no-interpolate`. The project permissions allow `docker compose config -q`, `--quiet` and `--no-interpolate`, plus `docker compose --profile cli config -q`, without a prompt; any other form prompts.
 
-## Local env file
+### Verification record (2026-10-10)
+
+Checks run for [ADR-0013](../adr/0013-per-service-env-files.md), from the repository root:
 
 ```bash
-cp .env.example .env
+for p in .env services/timesheet-core/.env services/allocation-agent/.env; do test -e "$p" && echo "$p exists" || echo "$p absent"; done
+docker compose config --quiet
+docker compose --profile cli --profile collect config --quiet
+docker compose --profile collect config --services
+docker compose --profile collect build collector
+docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep -i collector
+```
+
+- `test -e` reports each env file's existence without reading it. On 2026-10-10 all three were `absent`.
+- Both `config --quiet` forms: no output, exit 0. `config --services` lists `collector` and `db` (names only, no values).
+- The build: exit 0, ending with `naming to docker.io/library/timesheet-bot-collector:latest done` and ` Image timesheet-bot-collector Built`; `docker image ls` shows `timesheet-bot-collector:latest 631MB` (the bundled Claude Code CLI is about 241 MB of that).
+
+### Pin a base image by digest
+
+```bash
+docker pull -q ghcr.io/astral-sh/uv:0.12.21
+docker pull -q python:3.12-slim-bookworm
+docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/astral-sh/uv:0.12.21 python:3.12-slim-bookworm
+```
+
+- **Run from**: anywhere.
+- **What it does**: pulls the tags, then prints each image's `name@sha256:...` digest to paste into a `FROM` line.
+- **When to use it**: when you change a base image in `services/allocation-agent/Dockerfile`.
+- **Expected** (2026-10-10): `ghcr.io/astral-sh/uv@sha256:a7aed321...` and `python@sha256:34386ef0...`, the digests in the Dockerfile.
+
+### Smoke-test the collector image (no credential)
+
+```bash
+docker compose run --rm collector --help
+docker compose run --rm -e ANTHROPIC_API_KEY=dummy-not-a-credential collector --week 2026-W41 --dry-run
+docker compose run --rm collector --week 2026-W41 --dry-run --slack-user-id U0123ABCD --report-channel Bad
+docker compose run --rm --entrypoint sh collector -c 'id; touch /repo/x; test -w /repo/data/activity && echo activity-writable'
+```
+
+- **Run from**: the repository root.
+- **What it does**: checks the image without any Claude session: the CLI starts; the startup check refuses a dummy Anthropic variable; the collector finds the repository root and `config.yaml` in the mirrored `/repo` layout (it reaches channel validation); the user is non-root, the root filesystem is read-only and `data/activity` is writable.
+- **When to use it**: after rebuilding the collector image.
+- **Expected** (2026-10-10): the `collect` usage line; `collect: ANTHROPIC_API_KEY is set. ...` with exit 2; `collect: report channel 'Bad' is not a Slack channel name ...` with exit 2; `uid=1000(app) gid=1000(app)`, `touch: cannot touch '/repo/x': Read-only file system`, `activity-writable`. `run` leaves the `timesheet-bot_collect` network behind; `docker compose down` removes it.
+
+### Probe compose env precedence with dummy values
+
+```bash
+mkdir -p /tmp/compose-probe && cd /tmp/compose-probe
+printf 'FOO=fromfile\nBAR=fromfile\nBAZ=fromfile\n' > svc.env
+# compose.yml: one busybox service with env_file svc.env (required: false) and
+#   environment: { FOO: , BAR: ${BAR:-} }
+docker compose run --rm t env | grep -E '^(FOO|BAR|BAZ)='
+BAZ=fromshell docker compose run --rm -e BAZ t env | grep '^BAZ='
+```
+
+- **Run from**: a scratch folder outside the repository, with dummy values only (it prints them).
+- **What it does**: shows what reaches a container when `environment:` and `env_file` both name a key.
+- **When to use it**: before changing how `docker-compose.yml` passes variables.
+- **Expected** (2026-10-10, Compose v5.0.2): `BAR=` (blanked by `${BAR:-}`), no `FOO` line (a bare `FOO:` unsets it), `BAZ=fromfile`; with `-e BAZ` and `BAZ` exported, `BAZ=fromshell`; with `-e BAZ` and `BAZ` unset, `BAZ=fromfile`. See [ADR-0013](../adr/0013-per-service-env-files.md#compose-interpolation-checked).
+
+## Local env files
+
+One `.env` per service ([ADR-0013](../adr/0013-per-service-env-files.md)).
+
+```bash
+cp services/timesheet-core/.env.example services/timesheet-core/.env && chmod 600 services/timesheet-core/.env
+cp services/allocation-agent/.env.example services/allocation-agent/.env && chmod 600 services/allocation-agent/.env
+stat -c '%n %a' services/timesheet-core/.env services/allocation-agent/.env
 ```
 
 - **Run from**: the repository root, once.
-- **What it does**: creates your local, gitignored `.env` with the local `DATABASE_URL` and `TEST_DATABASE_URL` and empty token lines.
-- **Tokens**: fill the token lines in `.env` yourself (owner-only, never committed; run `chmod 600 .env`), or leave them empty and export the tokens in `~/.zshrc`. Agents never read, write or print `.env`. See [where tokens can live](../operations/configuration.md#where-tokens-can-live).
-- **Who reads it**: `make run` and `make test-int` (on the host), and `docker compose`, which reads it for `${VAR}` interpolation and loads it into the `app` service with `env_file` (`required: false`, so compose works without it; needs Compose 2.24.0 or later).
-- **Precedence**: your shell always wins, so a token exported in `~/.zshrc` overrides the same key in `.env`. In compose, `environment:` beats `env_file`, and the shell beats `.env` for interpolation; `make run` restores your exported variables after loading `.env`. Details and official sources: [configuration](../operations/configuration.md#precedence).
-- **Never in an image**: the build context is `services/timesheet-core`, outside which the root `.env` sits, and that folder's `.dockerignore` also excludes `.env` and `.env.*`.
-- **Optional**: direnv can load it on `cd`; see [configuration](../operations/configuration.md#optional-direnv). No `.envrc` is committed.
+- **What it does**: creates each service's local, gitignored `.env` from its template, readable by you only, then shows the path and mode (never the content). `services/timesheet-core/.env` holds the local `DATABASE_URL` and `TEST_DATABASE_URL` and empty token lines; `services/allocation-agent/.env` is optional (non-secret overrides, and `DEEPSEEK_API_KEY` when `report.parser` is `llm`).
+- **Tokens**: fill the token lines yourself (owner-only, never committed), or leave them empty and export the tokens in `~/.zshrc`. Agents never read, write or print any `.env`. See [where tokens can live](../operations/configuration.md#where-tokens-can-live).
+- **Who reads them**: `make run` and `make test-int` read `services/timesheet-core/.env`; `make collect` reads `services/allocation-agent/.env`; `docker compose` loads each into its service with `env_file` (`required: false`, so compose works without them; needs Compose 2.24.0 or later). Compose never interpolates from them.
+- **Precedence**: on the host your shell always wins, so a token exported in `~/.zshrc` overrides the same key in `.env`. In compose, the container gets the service `.env`; add `-e KEY` to `docker compose run` to pass a shell value, which then wins. Details and official sources: [configuration](../operations/configuration.md#precedence).
+- **Expected**: `stat` prints each path with `600`.
+- **Never in an image**: each `.env` sits inside its service's build context, and each service's `.dockerignore` excludes `.env` and `.env.*`.
+- **Old root `.env`**: no longer read. Move its values into `services/timesheet-core/.env`, then delete it.
+- **Optional**: direnv can load a service's `.env` on `cd`; see [configuration](../operations/configuration.md#optional-direnv). No `.envrc` is committed.
 
 ## Running the CLI
 
@@ -60,9 +138,9 @@ You can run the CLI three ways:
 
 | Form | Run from | Needs |
 |---|---|---|
-| `make -C services/timesheet-core run ARGS="<command>"` | the repository root | secrets from `.env` (owner-only, gitignored) or `~/.zshrc`; `DATABASE_URL` from `.env` (or your shell) for anything except `plan --dry-run` |
+| `make -C services/timesheet-core run ARGS="<command>"` | the repository root | secrets from `services/timesheet-core/.env` (owner-only, gitignored) or `~/.zshrc`; `DATABASE_URL` from that `.env` (or your shell) for anything except `plan --dry-run` |
 | `./bin/timesheet <command>` | `services/timesheet-core/` | `make build`; secrets and `DATABASE_URL` exported in your shell, from `~/.zshrc` (the binary never reads `.env`, so tokens kept only in `.env` need `make run`, compose or direnv) |
-| `docker compose run --rm app <command>` | the repository root | `docker compose build app`; secrets from `.env` (owner-only, gitignored) or `~/.zshrc` (compose interpolates them into `environment:`, shell first); compose sets `DATABASE_URL` and starts `db` |
+| `docker compose run --rm app <command>` | the repository root | `docker compose build app`; secrets from `services/timesheet-core/.env` (`env_file`), or from `~/.zshrc` passed by name with `docker compose run --rm -e KEY app <command>`; compose sets `DATABASE_URL` and starts `db` |
 
 ### `make run`
 
@@ -73,18 +151,18 @@ make -C services/timesheet-core run ARGS="plan --week 2026-W41"
 ```
 
 - **Run from**: the repository root (or `make run ARGS="..."` inside `services/timesheet-core/`).
-- **What it does**: exports the repository-root `.env` if it exists, restores every variable your shell already exported (so `~/.zshrc` wins over `.env`), then runs `go run ./cmd/timesheet $(ARGS)`. The recipe is silent and never prints a value.
+- **What it does**: exports `services/timesheet-core/.env` if it exists (`./.env` inside the service folder), restores every variable your shell already exported (so `~/.zshrc` wins over `.env`), then runs `go run ./cmd/timesheet $(ARGS)`. The recipe is silent and never prints a value.
 - **When to use it**: day-to-day local runs after a code change, without `make build` or an image rebuild.
 - **Expected**: `make -n -C services/timesheet-core run ARGS="--help"` prints the recipe with no values (confirmed 2026-10-09). The commands themselves need secrets and were not run while documenting.
 - **Quoting**: put the whole command in `ARGS="..."`; inner quotes pass through, for example `ARGS='reject --reason "missed Monday"'`.
 
 Both read `config/config.yaml` (in the container, `./services/timesheet-core/config` is mounted read-only at `/app/config`). Override with the global flag `--config <path>`.
 
-Which environment variables each command needs (names only; values come from `.env` (owner-only, gitignored) or `~/.zshrc`):
+Which environment variables each command needs (names only; values come from `services/timesheet-core/.env` (owner-only, gitignored) or `~/.zshrc`):
 
 | Command | Needs |
 |---|---|
-| `plan --dry-run` | `${JIRA_BASE_URL}`, `${JIRA_EMAIL}`, `${JIRA_API_TOKEN}`, and `${SLACK_USER_TOKEN}` only when `activity.source` is `slack` (the default) |
+| `plan --dry-run` | `${JIRA_BASE_URL}`, `${JIRA_EMAIL}`, `${JIRA_API_TOKEN}` only in `allocation.mode: jira_keys` (the default), and `${SLACK_USER_TOKEN}` only when `activity.source` is `slack` (the default). In report mode with `activity.source: file`, none |
 | `plan`, `approve`, `reject` | the same, plus `${DATABASE_URL}` |
 | `submit` | the same, `${DATABASE_URL}`, and the secret of each submit target: `${TEMPO_API_TOKEN}`, `${MAVENLINK_API_TOKEN}` or `${MAVENLINK_SESSION_COOKIE}` |
 | `migrate up`, `migrate down` | `${DATABASE_URL}` only |
@@ -117,10 +195,11 @@ docker compose run --rm app plan --week 2026-W41 --force   # replace a proposal 
 - **Not run while documenting** (needs secrets, calls Slack and Jira).
 - **Common failures** (both confirmed 2026-10-09 without secrets):
   - `error: open config/config.yaml: no such file or directory`: copy `config/config.example.yaml` to `config/config.yaml` and fill it in.
-  - `error: missing environment variables: SLACK_USER_TOKEN, JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN (export them in ~/.zshrc)`: set them in `.env` (owner-only, gitignored) or export them in `~/.zshrc` and open a new shell. The message text still mentions only `~/.zshrc`. It names variables, never values.
+  - `error: missing environment variables: SLACK_USER_TOKEN, JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN (export them in ~/.zshrc)`: set them in `services/timesheet-core/.env` (owner-only, gitignored) or export them in `~/.zshrc` and open a new shell. The message text still mentions only `~/.zshrc`. It names variables, never values.
   - `--week: ...`: the week is not in `YYYY-Www` form.
   - `error: collect activity: activity file <path> not found: run the allocation-agent collector for <week> first`: with `activity.source: file`, the week's file is missing. Run the collector for that week; the path shown is where it must be ([configuration](../operations/configuration.md#activity-week-files)).
   - `activity file <path>: week ...`, `slack_user_id ...` or `schema_version ...`: the file is for another week or user, or in a format this version does not read.
+  - In report mode, `report parsing is not implemented yet`: `reportparser.Parser.Parse` is still `TODO(owner)`. Lines such as `warning: 2026-10-05: 9h reported, over the daily cap of 8h; kept as reported, not scaled` after the table are warnings, not errors.
 
 ### Check the week-file source without Slack or Jira
 
@@ -133,6 +212,39 @@ rm -f config/tmp-activity-check.yaml
 
 - **What it does**: loads a throwaway config (fake, non-secret values) next to the real one, so the default `file_dir` resolves exactly as it does for `config/config.yaml`, and shows where `plan` looks for the week file. `SLACK_USER_TOKEN` is not needed.
 - **Expected** (confirmed 2026-10-10): `error: collect activity: activity file <repo>/data/activity/2026-W40.json not found: run the allocation-agent collector for 2026-W40 first: ...`.
+
+### Check report mode without Slack or Jira secrets
+
+```bash
+# inside services/timesheet-core
+printf 'slack_user_id: U1\nallocation:\n  mode: report\nreport:\n  channel: timesheet\nactivity:\n  source: file\nsubmit_targets: [mavenlink]\nmavenlink:\n  auth: cookie\n' > config/tmp-report-check.yaml
+env -u SLACK_USER_TOKEN -u JIRA_BASE_URL -u JIRA_EMAIL -u JIRA_API_TOKEN \
+  go run ./cmd/timesheet --config config/tmp-report-check.yaml plan --dry-run --week 2026-W40
+env -u DATABASE_URL go run ./cmd/timesheet --config config/tmp-report-check.yaml submit
+rm -f config/tmp-report-check.yaml
+```
+
+- **What it does**: loads a throwaway report-mode config (fake, non-secret values) with the Slack and Jira variables removed from the environment, to show which secrets each command still needs.
+- **Expected** (confirmed 2026-10-10): `plan` gets past the secret check and fails only on the missing week file (`activity file <repo>/data/activity/2026-W40.json not found ...`); `submit` reports `missing environment variables: DATABASE_URL, MAVENLINK_SESSION_COOKIE`, with no Jira or Tempo variable.
+
+### Preview report mode with LLM-parsed lines, without any secret
+
+```bash
+# inside services/timesheet-core
+T=$(mktemp -d) && cp test/unit/adapters/file/testdata/v2/2026-W41.json $T/
+printf 'slack_user_id: U0123ABCD\nallocation:\n  mode: report\nreport:\n  channel: timesheet\n  parser: llm\nactivity:\n  source: file\n  file_dir: %s\nsubmit_targets: [mavenlink]\nmavenlink:\n  auth: cookie\n  default_workspace_id: 1000001\n  default_story_id: 501\n  mappings:\n    - project: atlas\n      workspace_id: 1000003\n      story_id: 70\n' "$T" > $T/c.yaml
+env -u SLACK_USER_TOKEN -u JIRA_BASE_URL -u JIRA_EMAIL -u JIRA_API_TOKEN \
+  go run ./cmd/timesheet --config $T/c.yaml plan --dry-run --week 2026-W41
+rm -rf $T
+```
+
+- **What it does**: runs `plan --dry-run` in report mode on the fake version 2 test fixture, with no Slack, Jira or database. It shows the timesheet built from `report_lines`, after dedup, and where each entry goes in Mavenlink. The ids are fake.
+- **Expected** (confirmed 2026-10-10):
+  - `policy report` and a `MAVENLINK` column.
+  - Monday: `Atlas 4h project 1000003 task 70 API review` and `Atlas 5h ... release` (the duplicate line dropped).
+  - Tuesday: `Beacon 1h project 1000001 task 501 (default) standup`; `WEEK 10h`.
+  - Then `warning: 2026-10-05: 9h reported, over the daily cap of 8h; kept as reported, not scaled`, `warning: "Beacon" has no mavenlink.mappings rule; its time goes to default_workspace_id 1000001`, and `dry run: nothing saved`.
+  - Without the two `default_` lines it fails with `no Mavenlink mapping for project "Beacon": add a mavenlink.mappings rule or set default_workspace_id`. With `parser: manual` it fails with `report parsing is not implemented yet` until the owner writes the parser.
 
 ### Check that the container reads the mounted week files
 
@@ -189,7 +301,8 @@ docker compose run --rm app submit --week 2026-W41
   - `N entries failed; run submit again to retry only those`. Rerun `submit`; if the same entries keep failing, check the Tempo token and `tempo_base_url` region, or the `mavenlink.mappings` rules, in [configuration](../operations/configuration.md).
   - `missing environment variables: MAVENLINK_API_TOKEN` or `MAVENLINK_SESSION_COOKIE`: the variable for your `mavenlink.auth` mode is not set. See [Mavenlink credentials](../operations/runbooks/mavenlink-credentials.md).
   - `mavenlink session cookie expired: copy a fresh Cookie header into MAVENLINK_SESSION_COOKIE`: the browser session ended. Nothing was marked; refresh the cookie and rerun ([runbook](../operations/runbooks/mavenlink-credentials.md#when-the-session-expires)).
-  - `mavenlink mapping resolution is not implemented yet`: `MavenlinkMapping.Resolve` is still `TODO(owner)`.
+  - `no Mavenlink mapping for project "<name>"` (or `for issue "<key>"`): add a `mavenlink.mappings` rule or set `default_workspace_id`. `plan` reports the same error first, so this appears at `submit` only if the config changed after `plan`.
+  - In report mode, `tempo needs a Jira issue; report entries go to Mavenlink only`: an entry reached Tempo; config validation normally prevents this.
 
 ### Check which secrets `submit` needs, without sending anything
 

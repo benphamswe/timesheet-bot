@@ -167,6 +167,18 @@ curl -sS "https://api.deps.dev/v3/systems/pypi/packages/langgraph/versions/1.2.1
 - **When to use it**: to judge footprint (criterion P8) and to see which transitive packages need their own advisory check.
 - **Expected** on 2026-10-09: `38`, then `["langchain-core 1.6.7","langgraph-checkpoint 4.2.0","langgraph-prebuilt 1.1.0","langgraph-sdk 0.4.6","pydantic 2.13.5","xxhash 4.0.1"]`.
 
+### Check the Claude Code CLI bundled in the Agent SDK wheel
+
+```bash
+ls -la services/allocation-agent/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled
+file -L services/allocation-agent/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude
+```
+
+- **Run from**: the repository root, after `make -C services/allocation-agent sync`.
+- **What it does**: shows that `claude-agent-sdk` ships its own Claude Code CLI (the SDK uses it before any `claude` on `PATH`) and which C library it needs.
+- **When to use it**: when choosing the collector image's base, or after upgrading `claude-agent-sdk`.
+- **Expected** (2026-10-10, `claude-agent-sdk==0.2.165`): a 241 MB `claude` executable; `ELF 64-bit LSB executable, x86-64, dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2`, a glibc binary, so the image uses Debian slim, not Alpine.
+
 ### Security advisories of a GitHub repository
 
 ```bash

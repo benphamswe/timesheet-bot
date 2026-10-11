@@ -1,0 +1,12 @@
+# Only pyproject.toml, uv.lock, .python-version and src/ are needed to build the image.
+# Env files never enter the build context or an image.
+.env
+.env.*
+.venv/
+.pytest_cache/
+.ruff_cache/
+**/__pycache__/
+tests/
+Dockerfile
+.dockerignore
+README.md

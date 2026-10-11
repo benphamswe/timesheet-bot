@@ -15,6 +15,7 @@ timesheet-bot/                            monorepo root: no language tooling her
 │   │   ├── go.mod, go.sum                    module `timesheet-bot`, Go 1.26, toolchain go1.26.9
 │   │   ├── Makefile                          make ci = lint, test, race, vuln, build
 │   │   ├── Dockerfile, .dockerignore         multi-stage build to distroless nonroot
+│   │   ├── .env.example                      env template; .env (owner-only, gitignored) is this service's own (ADR-0013)
 │   │   ├── .golangci.yml                     linters (naming, errors, security)
 │   │   ├── config/config.example.yaml        non-secret settings template (config.yaml is gitignored)
 │   │   ├── cmd/
@@ -49,8 +50,10 @@ timesheet-bot/                            monorepo root: no language tooling her
 │   │   │   │       └── tempo/                    WorklogGateway over Tempo REST v4
 │   │   │   │
 │   │   │   ├── allocation/                       Allocation bounded context (core)
-│   │   │   │   ├── domain/                    D  Policy port, Proposal, Input, RulePolicy (scaleDay: owner TODO)
+│   │   │   │   ├── domain/                    D  Policy port, Proposal, Input, RulePolicy (scaleDay: owner TODO);
+│   │   │   │   │                                 report.go: ReportLine, ReportParser port, ReportPolicy, DedupReportLines
 │   │   │   │   └── infrastructure/
+│   │   │   │       ├── reportparser/          I  ReportParser for the owner's Slack summaries (Parse: owner TODO, ADR-0012)
 │   │   │   │       └── grpcpolicy/            I  planned P3 (ADR-0007): gRPC client to
 │   │   │   │                                     allocation-agent, implements allocation.Policy;
 │   │   │   │                                     anti-corruption layer from proto Proposal to domain Proposal
@@ -92,8 +95,10 @@ timesheet-bot/                            monorepo root: no language tooling her
 │   │       │                                     no production import of test/; partial, see M4, N1-N3
 │   │       └── e2e/                              planned: end-to-end CLI tests of this service
 │   │
-│   └── allocation-agent/                  planned P3 (ADR-0007): Python + LangGraph service serving PolicyService
-│       └── README.md                         no code until the Phase 3 plan is final
+│   └── allocation-agent/                  Python: the Slack activity collector `collect` (ADR-0011); planned P3 (ADR-0007): LangGraph service serving PolicyService
+│       ├── Dockerfile, .dockerignore         collector image, uv + python:3.12-slim (compose service `collector`, ADR-0013)
+│       ├── .env                              owner-only, gitignored: this service's env, loaded by make collect (ADR-0013)
+│       └── README.md
 │
 ├── api/
 │   └── proto/timesheetbot/                planned: gRPC contracts at context boundaries (allocation/v1, activity/v1)
@@ -103,7 +108,7 @@ timesheet-bot/                            monorepo root: no language tooling her
 ├── docs/                                  product and engineering documentation
 ├── .claude/                               Claude Code agent team, skills, rules, hooks
 ├── .github/                               CI workflow (runs in services/timesheet-core), Dependabot
-├── docker-compose.yml                     local runtime: db + app (+ allocation-agent in P3)
+├── docker-compose.yml                     local runtime: db + app + collector (profile collect); each loads its service .env (+ allocation-agent in P3)
 ├── Makefile                               runs a target in every service: make ci, make test, ...
 └── README.md, CLAUDE.md, CHANGELOG.md
 ```
@@ -191,4 +196,4 @@ Technical-architect review, mode `review`, read-only, with official sources. The
 
 Deliberately fine, so do not "fix" these: ports in `timesheet/application` (consumer-defined), `Repository` in the domain, no application layer in Allocation and Activity, CLI depending on application types (and rendering `timesheet/domain` and kernel types), `platform/db` outside the contexts, `migrations/` at the module root (`services/timesheet-core/migrations/`, embedded by its own `embed.go`), and no circuit breaker, broker or CQRS (scale filter, ADR-0006). `go:embed` does not require the root: it needs only that the embedding file sits in the directory of the embedded files or above it (pkg.go.dev/embed), so a move to `internal/migrations/` (N-07) is possible.
 
-Recommended structure changes: drop `activity/domain.Source` (L7; keep `ToActivity` in the package), optionally move `shared/httpx` to `platform/httpx`, optionally move `migrations/` to `internal/migrations/` (N-07), and add the next free migration, `migrations/00003_outbox_owner.sql` (M3; `00002` is `00002_mavenlink_entry_id.sql`). Nothing else moves.
+Recommended structure changes: drop `activity/domain.Source` (L7; keep `ToActivity` in the package), optionally move `shared/httpx` to `platform/httpx`, optionally move `migrations/` to `internal/migrations/` (N-07), and add the next free migration, `migrations/00004_outbox_owner.sql` (M3; `00002` and `00003` are taken by ADR-0010 and ADR-0012). Nothing else moves.

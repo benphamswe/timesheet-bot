@@ -2,6 +2,7 @@
 timezone: Asia/Ho_Chi_Minh
 
 # Your Atlassian account id (Jira profile URL: .../jira/people/<accountId>).
+# jira_keys mode only; leave it out in report mode.
 jira_account_id: "REPLACE_ME"
 
 # Your Slack member id (Slack profile > ... > Copy member ID).
@@ -17,6 +18,29 @@ tempo_base_url: https://api.tempo.io/4
 channel_defaults:
   proj-gcm: GCM-1
   proj-hub: HUB-1
+
+# How messages become time.
+allocation:
+  # jira_keys: 45m per Jira issue key per day (needs Jira; Tempo and/or Mavenlink).
+  # report: each line of the timesheet summaries you write in Slack becomes one entry
+  #         (no Jira; Mavenlink only; needs activity.source: file). See ADR-0012.
+  mode: jira_keys
+
+# report mode: where you write your summaries. The allocation-agent collector reads these
+# keys too.
+report:
+  channel: ""            # summary channel name without '#'
+  include_self_dm: true
+  # manual: Go's hand-written parser reads each summary.
+  # llm: the collector's LLM parses the summaries into report_lines (activity file v2);
+  #      Go only validates them. Configure the model in the llm block below.
+  parser: manual
+
+# report.parser: llm only. Read by the allocation-agent collector; Go ignores this block.
+# The API key comes from the collector's environment, never from this file.
+llm:
+  provider: deepseek
+  model: deepseek-flash
 
 # Where the week's Slack messages come from.
 activity:
@@ -45,8 +69,9 @@ mavenlink:
   default_workspace_id: 0
   default_story_id: 0
   default_role_id: 0
-  # Jira issues to Mavenlink projects. Set issue_key, jira_project or both; story_id,
-  # role_id and billable are optional.
+  # Entries to Mavenlink projects. jira_keys mode: set issue_key and/or jira_project.
+  # report mode: set project, the name as written in your report (any case).
+  # story_id, role_id and billable are optional.
   mappings:
     - jira_project: GCM
       workspace_id: 1000001
@@ -55,3 +80,5 @@ mavenlink:
     - issue_key: GCM-12
       workspace_id: 1000002
       billable: false
+    - project: Atlas
+      workspace_id: 1000003

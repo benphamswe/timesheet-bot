@@ -14,7 +14,7 @@ Not yet built: Slack approval DM and scheduler (Phase 2), Claude agent allocatio
 
 1. Create a Slack app with a **user token** (`xoxp-`) with scopes `search:read`, `channels:history`, `groups:history`, `im:history`.
 2. Create a Tempo API token (Tempo > Settings > API integration) and a Jira API token (id.atlassian.com > Security > API tokens).
-3. Put the tokens in `.env` (owner-only, gitignored) or `~/.zshrc`. For `.env`, run `cp .env.example .env` and `chmod 600 .env` at the repository root, then fill in the empty token lines yourself. For `~/.zshrc`, export them:
+3. Put the tokens in the Go service's `.env` (owner-only, gitignored) or `~/.zshrc`. For `.env`, run `cp services/timesheet-core/.env.example services/timesheet-core/.env` and `chmod 600 services/timesheet-core/.env` at the repository root, then fill in the empty token lines yourself. Each service has its own `.env` ([ADR-0013](docs/adr/0013-per-service-env-files.md)). For `~/.zshrc`, export them:
 
    ```bash
    export SLACK_USER_TOKEN=...

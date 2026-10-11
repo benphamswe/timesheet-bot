@@ -14,6 +14,8 @@ Entry ids are deterministic: `<timesheet_id>/<YYYY-MM-DD>/<ISSUE-KEY>`.
 
 Migration `00002_mavenlink_entry_id` adds the nullable `timesheet_entries.mavenlink_entry_id` (text), the Mavenlink time entry id, next to `tempo_worklog_id`. An entry is in a target when that target's column is not null ([ADR-0010](../adr/0010-add-mavenlink-as-a-second-submit-target.md)).
 
+Migration `00003_report_entry_project` adds `timesheet_entries.project` (text, default `''`) for report mode. It replaces the UNIQUE (`timesheet_id`, `issue_key`, `day`) constraint with the partial unique index `timesheet_entries_issue_day` on rows with an issue key, so a project may have several entries per day, and adds CHECK `timesheet_entries_issue_or_project`, which requires exactly one of `issue_key` and `project`. Report entry ids are `<timesheet_id>/<YYYY-MM-DD>/report-NN`. Its down step deletes report entries ([ADR-0012](../adr/0012-report-mode-slack-summaries-to-mavenlink-without-jira.md)).
+
 `Save` rewrites the entry rows of a timesheet inside the same transaction as the version-checked update and the outbox insert.
 
 ## Planned

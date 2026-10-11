@@ -16,3 +16,5 @@ CLAUDE.local.md
 # Python service (planned P3)
 services/allocation-agent/.venv/
 __pycache__/
+.pytest_cache/
+.ruff_cache/

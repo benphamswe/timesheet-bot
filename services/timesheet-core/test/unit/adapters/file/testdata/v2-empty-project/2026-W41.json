@@ -1,0 +1,92 @@
+{
+  "schema_version": 2,
+  "week": "2026-W41",
+  "slack_user_id": "U0123ABCD",
+  "generated_at": "2026-10-09T16:00:00+07:00",
+  "source": "slack-mcp",
+  "future_field": {
+    "x": 1
+  },
+  "messages": [
+    {
+      "ts": "1791135000.000100",
+      "channel_id": "C01",
+      "channel_name": "proj-x",
+      "posted_at": "2026-10-05T00:30:00+07:00",
+      "text": "standup GCM-1",
+      "permalink": "https://example.slack.com/archives/C01/p1791135000000100",
+      "thread_ts": null,
+      "reactions": [
+        "eyes"
+      ]
+    },
+    {
+      "ts": "1791252000.000100",
+      "channel_id": "C02",
+      "channel_name": "proj-hub",
+      "posted_at": "2026-10-06T09:00:00+07:00",
+      "text": "kickoff HUB-2",
+      "permalink": "https://example.slack.com/archives/C02/p1791252000000100",
+      "thread_ts": "1791252000.000100"
+    },
+    {
+      "ts": "1791256500.000100",
+      "channel_id": "C02",
+      "channel_name": "proj-hub",
+      "posted_at": "2026-10-06T10:15:00+07:00",
+      "text": "worked on HUB-2 and GCM-1",
+      "permalink": "https://example.slack.com/archives/C02/p1791256500000100?thread_ts=1791252000.000100&cid=C02",
+      "thread_ts": "1791252000.000100"
+    },
+    {
+      "ts": "1791131400.000100",
+      "channel_id": "C01",
+      "channel_name": "proj-x",
+      "posted_at": "2026-10-04T23:30:00+07:00",
+      "text": "Sunday GCM-9",
+      "permalink": "https://example.slack.com/archives/C01/p1791131400000100",
+      "thread_ts": null
+    },
+    {
+      "ts": "1791588600.000100",
+      "channel_id": "C01",
+      "channel_name": "proj-x",
+      "posted_at": "2026-10-09T23:30:00Z",
+      "text": "late GCM-8",
+      "permalink": "https://example.slack.com/archives/C01/p1791588600000100",
+      "thread_ts": null
+    },
+    {
+      "ts": "1791356400.000100",
+      "channel_id": "C03",
+      "channel_name": "random",
+      "posted_at": "2026-10-07T14:00:00+07:00",
+      "text": "lunch",
+      "permalink": "https://example.slack.com/archives/C03/p1791356400000100",
+      "thread_ts": null
+    }
+  ],
+  "parser": {
+    "kind": "llm",
+    "provider": "deepseek",
+    "model": "deepseek-flash"
+  },
+  "report_lines": [
+    {
+      "date": "2026-10-06",
+      "project": "Beacon",
+      "minutes": 60,
+      "notes": "standup",
+      "source_ts": "1791252000.000100",
+      "source_channel_id": "D01"
+    },
+    {
+      "date": "2026-10-05",
+      "project": "  ",
+      "minutes": 240,
+      "notes": "PRIVATE-NOTES",
+      "source_ts": "1791999999.000100",
+      "source_channel_id": "C01"
+    }
+  ]
+}

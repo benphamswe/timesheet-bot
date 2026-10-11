@@ -50,6 +50,34 @@ git remote -v
 
 - **Expected**: `benphamse git@benphamse:benphamswe/timesheet-bot.git` for fetch and push. Confirmed 2026-10-09.
 
+### What git ignores
+
+```bash
+git check-ignore -v services/timesheet-core/.env services/allocation-agent/.env \
+  services/allocation-agent/.pytest_cache services/allocation-agent/.ruff_cache
+git check-ignore -v services/allocation-agent/.env.example
+git ls-files | grep -i env
+```
+
+- **Run from**: the repository root.
+- **What it does**: prints the `.gitignore` rule that matches each path, without reading any file. The second form shows that `.env.example` templates stay committable (the match is the negation `!.env.example`). `git ls-files` lists the env templates git tracks, by name only.
+- **When to use it**: after changing `.gitignore`, or before creating a new env file.
+- **Expected** (2026-10-10): `.gitignore:3:.env` for both service `.env` paths, `.gitignore:19:.pytest_cache/` and `.gitignore:20:.ruff_cache/` for the caches, `.gitignore:5:!.env.example` for the template; `git ls-files` lists `services/timesheet-core/.env.example` and `timesheet-bot-env.example`.
+
+### Scope a commit without reading env files
+
+```bash
+git status --short --ignored
+git diff --stat -- . ':(exclude)**/.env*'
+rtk proxy git diff -- <path>
+git log -3 --format='%B---'
+```
+
+- **Run from**: the repository root.
+- **What it does**: `--ignored` also lists ignored paths (`!!`) by name, so you can see build output, caches and `.venv` that git skips. The `:(exclude)**/.env*` pathspec keeps every `.env*` file out of the diff. `rtk proxy git diff` prints the raw unified diff when the `rtk` filter shortens it to a summary. `git log --format='%B---'` prints the full message of recent commits, to copy their convention.
+- **When to use it**: when preparing a commit proposal, to flag files that should not be committed (by name only) and to match the message style.
+- **Expected** (2026-10-10): `!!` for `services/allocation-agent/.venv/`, the `__pycache__`, `.pytest_cache` and `.ruff_cache` folders, `services/timesheet-core/bin/`, `coverage.out` and `config/config.yaml`; no `!!` line for any weekly file under `data/activity/`.
+
 ## How the owner reviews before committing
 
 1. The agent finishes the change and runs the checks it touched (`make ci` from the root; see [CI](ci.md)).

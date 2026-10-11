@@ -8,7 +8,7 @@ Every Go test lives under `services/timesheet-core/test/`, not beside the code i
 
 `TestRulePolicyScalesOverCapDay` (in `test/unit/allocation/domain/rule_test.go`) covers `scaleDay` in `internal/allocation/domain/rule.go`, which is marked `TODO(owner)`. With the owner's approval (2026-10-09) the test is skipped with a `TODO(owner)` message, and the owner removes the skip when `scaleDay` lands. Never implement `scaleDay` or remove the skip yourself; see [conventions](../development/conventions.md).
 
-`TestMavenlinkMappingResolve` (in `test/unit/timesheet/application/mavenlink_mapping_test.go`) is skipped the same way: it covers `MavenlinkMapping.Resolve` in `internal/timesheet/application/mavenlink_mapping.go`, also `TODO(owner)` ([ADR-0010](../adr/0010-add-mavenlink-as-a-second-submit-target.md)). Its cases assume most-specific-wins; adjust them to the rule you choose, then remove the skip.
+`TestParse` (in `test/unit/adapters/reportparser/parser_test.go`) covers `reportparser.Parser.Parse`, also `TODO(owner)` ([ADR-0012](../adr/0012-report-mode-slack-summaries-to-mavenlink-without-jira.md)); change its cases to your report format, then remove the skip.
 
 See the skip:
 
@@ -85,7 +85,7 @@ make ci
 - **Run from**: the repository root.
 - **What it does**: the root `ci` target runs `proto-lint` first, then `make ci` in each service. `.DEFAULT_GOAL` is `ci`, so a bare `make` runs the same thing. Every other target still goes through the pattern rule to each service.
 - **When to use it**: before asking the owner to review a change.
-- **Expected**: `no proto files yet` (there are no `.proto` files), then `== services/timesheet-core: ci` and the service steps, all green. Confirmed 2026-10-09: `make ci` is fully green, lint reports 0 issues, and 5 tests are skipped (see [known skipped tests](../architecture/testing.md#known-skipped-tests)).
+- **Expected**: `no proto files yet` (there are no `.proto` files), then `== services/timesheet-core: ci` and the service steps, all green. Confirmed 2026-10-09: `make ci` is fully green, lint reports 0 issues, and 5 tests are skipped (see [known skipped tests](../architecture/testing.md#known-skipped-tests)). Re-run on 2026-10-10 as `GOTOOLCHAIN=auto make ci` after ADR-0013: exit 0; allocation-agent `All checks passed!` and `132 passed`; timesheet-core `0 issues.` and `No vulnerabilities found.`
 
 `make proto-lint` is defined only at the root; see [contracts](contracts.md).
 
@@ -130,7 +130,7 @@ docker compose up -d db      # from the repository root, first
 make test-int
 ```
 
-- **What it does**: `go test -tags=integration ./test/integration/...` with `TEST_DATABASE_URL` defaulting to the local compose database (`postgres://timesheet:timesheet@localhost:5432/timesheet?sslmode=disable`, a non-secret local default). Set `TEST_DATABASE_URL` to point elsewhere. The recipe first loads the repository-root `.env` if present (the same `LOAD_DOTENV` macro as [`make run`](docker-and-runtime.md#make-run)), so the order is: your shell, then `.env`, then the default. Without `.env`, as in CI, it behaves as before.
+- **What it does**: `go test -tags=integration ./test/integration/...` with `TEST_DATABASE_URL` defaulting to the local compose database (`postgres://timesheet:timesheet@localhost:5432/timesheet?sslmode=disable`, a non-secret local default). Set `TEST_DATABASE_URL` to point elsewhere. The recipe first loads `services/timesheet-core/.env` if present (the same `LOAD_DOTENV` macro as [`make run`](docker-and-runtime.md#make-run)), so the order is: your shell, then that `.env`, then the default. Without `.env`, as in CI, it behaves as before.
 - **When to use it**: after changing `internal/timesheet/infrastructure/postgres` or a migration.
 - **Expected**: `ok timesheet-bot/test/integration/postgres`; `TestRoundTripConflictAndOutbox` passes. Confirmed 2026-10-09 against a fresh container, before the move to `test/`.
 - **Common failure**: `connect: connection refused` means the database is not up. Run `docker compose up -d db` from the root and wait until `docker compose ps` shows `(healthy)`. See [database](database.md).
@@ -237,6 +237,19 @@ rtk proxy go test ./test/unit/allocation/domain/ -v
 - **When to use it**: when a test run says it failed but you cannot see which test or why.
 - **Expected**: the normal `go test` output, for example `--- SKIP: TestRulePolicyScalesOverCapDay` with its `TODO(owner)` message.
 
+### Count passed and skipped tests
+
+```bash
+go -C services/timesheet-core test -count=1 -json ./... > /tmp/gotest.json
+grep '"Action":"skip"' /tmp/gotest.json | grep -c '"Test":'
+grep '"Action":"pass"' /tmp/gotest.json | grep -c '"Test":'
+```
+
+- **Run from**: the repository root.
+- **What it does**: runs every Go test without the cache and counts the `skip` and `pass` events that name a test (subtests included).
+- **When to use it**: to report test counts after `make ci`, whose plain output only lists packages.
+- **Expected** (2026-10-10): 357 passed (163 top-level), 5 skipped, 0 failed.
+
 ## Python service (allocation-agent)
 
 Run these from `services/allocation-agent/`, or from the root with `make -C services/allocation-agent <target>`. uv is pinned in `pyproject.toml` (`[tool.uv] required-version = "==0.12.21"`); another uv version stops with a version error. Tests live in `tests/` with a `src` layout and the `importlib` import mode ([testing](../architecture/testing.md)); they fake the SDK client and never call Claude or Slack.
@@ -261,7 +274,19 @@ uv lock                   # or: make lock
 - **Run from**: `services/allocation-agent/`.
 - **What it does**: re-resolves `uv.lock` (every transitive dependency with hashes) from `pyproject.toml`.
 - **When to use it**: after editing dependencies in `pyproject.toml`.
-- **Expected**: `Resolved 41 packages in ...` (2026-10-10, with `claude-agent-sdk==0.2.165`).
+- **Expected**: `Resolved 41 packages in ...` (2026-10-10, with `claude-agent-sdk==0.2.165`); `Resolved 44 packages` after `httpx` was added.
+
+### `uv add` and `uv lock --check`
+
+```bash
+uv add 'httpx>=0.28,<1'   # adds a runtime dependency to pyproject.toml and re-locks
+uv lock --check           # fails if uv.lock does not match pyproject.toml; changes nothing
+```
+
+- **Run from**: `services/allocation-agent/`.
+- **What it does**: `uv add` writes the requirement into `[project] dependencies`, re-resolves `uv.lock` and installs it into `.venv/`. `uv lock --check` only verifies the lockfile.
+- **When to use it**: `uv add` when code needs a new library (after the tech-review rules for new dependencies). `uv lock --check` before a commit that touches `pyproject.toml`.
+- **Expected** (2026-10-10): `uv add 'httpx>=0.28,<1'` installed `certifi==2026.7.22`, `httpcore==1.0.9` and `httpx==0.28.1` (used by the DeepSeek adapter, [ADR-0014](../adr/0014-llm-provider-port-with-deepseek-for-report-parsing.md)). `uv lock --check` prints `Resolved 44 packages in ...`.
 
 ### `make test` (Python)
 
@@ -273,7 +298,7 @@ uv run --locked pytest tests/unit/activity/test_week.py -k boundaries   # one fi
 
 - **Run from**: `services/allocation-agent/`.
 - **What it does**: runs every test under `tests/`.
-- **Expected** (2026-10-10): `69 passed, 6 skipped`. The six skips are `tests/unit/activity/test_normalize.py`, skipped with `TODO(owner)` until the owner writes `normalize_messages`. Only the owner removes that skip.
+- **Expected** (2026-10-10): `259 passed`, with no skips. `tests/unit/activity/test_normalize.py` runs, because `normalize_messages` is implemented. The LLM tests (`tests/unit/llm/`, `tests/unit/report/`, `test_cli_llm.py`) use `FakeLLMClient` or `httpx.MockTransport`. An autouse fixture in `tests/conftest.py` fails any test that tries a real HTTP request.
 
 ### `make ci` (Python)
 
@@ -282,4 +307,4 @@ make ci                   # lint, then test
 ```
 
 - **Run from**: `services/allocation-agent/`. The root `make ci` runs it too, after `proto-lint` and before `services/timesheet-core`.
-- **Expected** (2026-10-10): ruff `All checks passed!`, `21 files already formatted`, then the test line above. `test-race` runs `test`; `test-int`, `cover`, `vuln`, `build`, `fuzz`, `arch` and `run` print `allocation-agent: no '<target>' step for the Python service yet` and pass, so root fan-out targets such as `make run ARGS=...` still reach the Go service.
+- **Expected** (2026-10-10): ruff `All checks passed!`, `44 files already formatted`, then `259 passed` (re-confirmed 2026-10-10 with the LLM parser). `test-race` runs `test`; `test-int`, `cover`, `vuln`, `build`, `fuzz`, `arch` and `run` print `allocation-agent: no '<target>' step for the Python service yet` and pass, so root fan-out targets such as `make run ARGS=...` still reach the Go service.

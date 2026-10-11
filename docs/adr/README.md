@@ -15,6 +15,9 @@ Each ADR records one decision that is hard to reverse. To add one, copy [0000-te
 | [ADR-0009](0009-tests-in-separate-tree.md) | Keep every Go test in one `test/` tree, black-box only; a deliberate deviation from the Go convention | Accepted (2026-10-09, owner) |
 | [ADR-0010](0010-add-mavenlink-as-a-second-submit-target.md) | Add Mavenlink as a second submit target through its REST API, with bearer or browser-cookie auth | Proposed |
 | [ADR-0011](0011-collect-slack-activity-through-claude-slack-mcp-connector.md) | Collect Slack activity through Claude's Slack MCP connector into a versioned weekly JSON file | Proposed |
+| [ADR-0012](0012-report-mode-slack-summaries-to-mavenlink-without-jira.md) | Report mode: each line of the owner's Slack timesheet summaries becomes one Mavenlink entry, without Jira; exact duplicates dropped, over-cap days warned, Tempo excluded | Proposed |
+| [ADR-0013](0013-per-service-env-files.md) | Keep one `.env` per service (`services/timesheet-core/.env`, `services/allocation-agent/.env`); compose loads each with `env_file` and passes no secret through `environment:`; `collect` refuses Anthropic credentials; collector container credentials pending | Proposed |
+| [ADR-0014](0014-llm-provider-port-with-deepseek-for-report-parsing.md) | Parse report summaries with an LLM behind a provider port (Strategy + registry); DeepSeek first; fail-stop on any LLM error (exit 4, no file); activity file v2 adds `parser` and `report_lines`; summaries go to a China-hosted third party, pending the owner's policy check | Proposed |
 
 ## Reviews
 

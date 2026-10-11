@@ -13,6 +13,13 @@ type ActivitySource interface {
 	Collect(ctx context.Context, week kernel.WeekID) ([]kernel.WorkActivity, error)
 }
 
+// ReportLineSource provides the week's report lines that the collector's LLM
+// already parsed (report.parser: llm; the activity file adapter in
+// production). It fails when the source has no parsed lines for the week.
+type ReportLineSource interface {
+	ReportLines(ctx context.Context, week kernel.WeekID) ([]kernel.ReportLine, error)
+}
+
 // Issue is the subset of a Jira issue the timesheet needs.
 type Issue struct {
 	ID      int64

@@ -2,11 +2,14 @@ package domain
 
 import "timesheet-bot/internal/shared/kernel"
 
-// Entry is one worklog line: time spent on an issue on a day.
+// Entry is one worklog line: time spent on a Jira issue (jira_keys mode) or
+// on a project from the owner's report (report mode) on a day. Exactly one of
+// IssueKey and Project is set.
 type Entry struct {
 	ID               string
 	IssueKey         kernel.IssueKey
-	IssueID          int64 // Jira numeric id, required by Tempo
+	IssueID          int64  // Jira numeric id, required by Tempo; 0 for a report entry
+	Project          string // report mode: the project as written in the report
 	Day              kernel.WorkDay
 	Duration         kernel.Duration
 	Description      string

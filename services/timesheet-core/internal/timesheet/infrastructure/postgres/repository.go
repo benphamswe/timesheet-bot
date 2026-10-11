@@ -49,7 +49,7 @@ func (r *Repository) Get(ctx context.Context, user string, week kernel.WeekID) (
 	}
 
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, issue_key, issue_id, day, minutes, description, coalesce(tempo_worklog_id, ''), coalesce(mavenlink_entry_id, ''),
+		SELECT id, issue_key, issue_id, project, day, minutes, description, coalesce(tempo_worklog_id, ''), coalesce(mavenlink_entry_id, ''),
 		       submit_attempts, last_error
 		FROM timesheet_entries WHERE timesheet_id = $1`, s.ID)
 	if err != nil {
@@ -63,11 +63,13 @@ func (r *Repository) Get(ctx context.Context, user string, week kernel.WeekID) (
 			day     time.Time
 			minutes int
 		)
-		if err := rows.Scan(&e.ID, &key, &e.IssueID, &day, &minutes, &e.Description, &e.TempoWorklogID, &e.MavenlinkEntryID, &e.SubmitAttempts, &e.LastError); err != nil {
+		if err := rows.Scan(&e.ID, &key, &e.IssueID, &e.Project, &day, &minutes, &e.Description, &e.TempoWorklogID, &e.MavenlinkEntryID, &e.SubmitAttempts, &e.LastError); err != nil {
 			return nil, err
 		}
-		if e.IssueKey, err = kernel.NewIssueKey(key); err != nil {
-			return nil, err
+		if key != "" { // a report entry has a project instead
+			if e.IssueKey, err = kernel.NewIssueKey(key); err != nil {
+				return nil, err
+			}
 		}
 		if e.Day, err = kernel.NewWorkDay(day); err != nil {
 			return nil, err
@@ -115,10 +117,10 @@ func (r *Repository) Save(ctx context.Context, t *domain.Timesheet) error {
 		}
 		for _, e := range s.Entries {
 			_, err := tx.Exec(ctx, `
-				INSERT INTO timesheet_entries (id, timesheet_id, issue_key, issue_id, day, minutes, description,
+				INSERT INTO timesheet_entries (id, timesheet_id, issue_key, issue_id, project, day, minutes, description,
 					tempo_worklog_id, mavenlink_entry_id, submit_attempts, last_error)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, nullif($8, ''), nullif($9, ''), $10, $11)`,
-				e.ID, s.ID, e.IssueKey.String(), e.IssueID, e.Day.Time(), e.Duration.Minutes(), e.Description,
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, nullif($9, ''), nullif($10, ''), $11, $12)`,
+				e.ID, s.ID, e.IssueKey.String(), e.IssueID, e.Project, e.Day.Time(), e.Duration.Minutes(), e.Description,
 				e.TempoWorklogID, e.MavenlinkEntryID, e.SubmitAttempts, e.LastError)
 			if err != nil {
 				return fmt.Errorf("insert entry %s: %w", e.ID, err)

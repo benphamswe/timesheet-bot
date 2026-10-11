@@ -1,4 +1,6 @@
 services:
+  # The db service uses no ${VAR} interpolation, so it needs no .env file at all. Its values are
+  # local-only defaults; the Postgres image applies them only when the volume is first created.
   db:
     image: postgres:17-alpine
     environment:
@@ -21,39 +23,85 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Optional local settings (cp .env.example .env). Missing .env is ignored; `required`
-    # needs Compose 2.24.0 or later. Relative to this file's folder.
+    # One .env per service (ADR-0013). The tokens reach the container from this file only.
+    # Missing file is ignored (`required: false` needs Compose 2.24.0 or later), so
+    # `docker compose up -d db` works without it. Relative to this file's folder.
     # https://docs.docker.com/reference/compose-file/services/#env_file
     env_file:
-      - path: .env
+      - path: services/timesheet-core/.env
         required: false
-    # `environment:` beats `env_file`, so the env_file copy of .env never replaces these.
-    # https://docs.docker.com/compose/how-tos/environment-variables/envvars-precedence/
+    # Only non-secret, container-specific values belong here. No secret may be listed in
+    # `environment:`, in any form:
+    #   - `environment:` beats `env_file`, "even if those values are empty or undefined"
+    #     (https://docs.docker.com/reference/compose-file/services/#env_file).
+    #   - `${KEY}` / `${KEY:-}` is interpolated from the shell and the PROJECT-ROOT .env, never
+    #     from services/timesheet-core/.env, so an unset KEY would become "" and blank the token
+    #     the env_file just loaded. A bare `KEY:` (no value) unsets it in the container instead.
+    #     Both checked on 2026-10-10 with dummy values in a scratch compose file.
+    # To pass a token exported in your shell (~/.zshrc) for one run, use `-e KEY` (no value):
+    #   docker compose run --rm -e SLACK_USER_TOKEN app plan --dry-run
+    # A shell value given that way wins over the env_file; an unset one leaves the file's value.
     environment:
-      # Container-side address of the db service; overrides the localhost DATABASE_URL in .env.
+      # Container-side address of the db service; overrides the localhost DATABASE_URL that the
+      # service .env holds for host runs (`make run`).
       DATABASE_URL: postgres://timesheet:timesheet@db:5432/timesheet?sslmode=disable
-      # Secrets: no value is stored here. Compose interpolates ${KEY} from the shell (~/.zshrc)
-      # first, then from the root .env (gitignored, written by the owner only), so a token set
-      # in either reaches the container, and an empty KEY= in .env never blanks a shell token.
-      # https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/
-      SLACK_USER_TOKEN: ${SLACK_USER_TOKEN}
-      TEMPO_API_TOKEN: ${TEMPO_API_TOKEN}
-      JIRA_BASE_URL: ${JIRA_BASE_URL}
-      JIRA_EMAIL: ${JIRA_EMAIL}
-      JIRA_API_TOKEN: ${JIRA_API_TOKEN}
-      # Mavenlink, needed only when submit_targets has mavenlink. `:-` keeps compose quiet when
-      # they are unset.
-      MAVENLINK_API_TOKEN: ${MAVENLINK_API_TOKEN:-}
-      MAVENLINK_SESSION_COOKIE: ${MAVENLINK_SESSION_COOKIE:-}
     volumes:
       - ./services/timesheet-core/config:/app/config:ro
       # Week files for activity.source: file, written by the allocation-agent collector. The
       # default activity.file_dir (../../../data/activity, relative to /app/config) resolves here.
       - ./data/activity:/data/activity:ro
     # Phase 1 is CLI-only: docker compose run --rm app plan --week 2026-W41
-    # planned P3 (ADR-0007): an allocation-agent service built from ./services/allocation-agent,
+    # planned P3 (ADR-0007): an allocation-agent gRPC service built from ./services/allocation-agent,
     # on this network only, with no published port.
     profiles: ["cli"]
+
+  # Slack activity collector (ADR-0011), the Python `collect` CLI in a container.
+  #   docker compose --profile collect build collector
+  #   docker compose run --rm collector --week 2026-W41 --dry-run
+  # NOT USABLE YET: see the BLOCKER below. The documented way to collect stays `make collect` on
+  # the host (docs/commands/activity-collection.md).
+  collector:
+    build: ./services/allocation-agent
+    profiles: ["collect"]
+    # Secrets (DEEPSEEK_API_KEY when report.parser is llm) come from this file only, never from
+    # `environment:` interpolation (same reasons as on the app service). `collect` refuses to
+    # start if ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN or CLAUDE_CODE_OAUTH_TOKEN is set, because
+    # any of them hides the claude.ai Slack connector.
+    env_file:
+      - path: services/allocation-agent/.env
+        required: false
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    # BLOCKER, owner decision pending (ADR-0013, "Collector credentials in a container"):
+    # the claude.ai Slack connector loads only on a claude.ai subscription login, stored by Claude
+    # Code in $CLAUDE_CONFIG_DIR/.credentials.json (default ~/.claude) and refreshed (rewritten)
+    # by Claude Code. No credential is mounted here on purpose; never mount the owner's ~/.claude.
+    # Placeholder for the option the owner picks, deliberately left disabled:
+    #   volumes:
+    #     - <credential mount, to be decided>:/home/app/.claude
+    #   environment:
+    #     CLAUDE_CONFIG_DIR: /home/app/.claude
+    # Until then the preflight fails with: MCP server "claude.ai Slack" not found.
+    volumes:
+      # The image mirrors the repository layout under /repo, so the collector's defaults work:
+      # it reads the Go core's config.yaml and writes <repo>/data/activity/<week>.json.
+      - ./services/timesheet-core/config:/repo/services/timesheet-core/config:ro
+      - ./data/activity:/repo/data/activity:rw
+    # Least privilege (ADR-0007 review, condition C9): non-root (uid 1000 from the image, the WSL
+    # default user, so the week files stay writable on the host), read-only root filesystem,
+    # no capabilities, own network with no route to db.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/app # Claude Code writes session state under $HOME; discarded on exit
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # Egress needed: Claude (api.anthropic.com, claude.ai) for the session and the Slack
+    # connector, and api.deepseek.com when report.parser is llm (docs/architecture/network.md).
+    networks: [collect]
+
+networks:
+  collect: {}
 
 volumes:
   pgdata:

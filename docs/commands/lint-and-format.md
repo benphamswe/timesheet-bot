@@ -128,9 +128,10 @@ make lint                                  # uv sync --locked, ruff check ., ruf
 make fix                                   # ruff check --fix ., ruff format .
 uv run --locked ruff check .
 uv run --locked ruff format --check .
+uv run --locked ruff check src/allocation_agent/activity/normalize.py tests/unit/activity/test_normalize.py   # only the files you changed
 ```
 
 - **Run from**: `services/allocation-agent/`. The rules are in `pyproject.toml` (`[tool.ruff]`: line length 100, rule sets `E F W I B UP S SIM RUF`).
 - **What it does**: lints and checks formatting of `src/` and `tests/`. `make fix` rewrites files.
 - **When to use it**: before every review of Python changes.
-- **Expected** (2026-10-10): `All checks passed!` and `21 files already formatted`.
+- **Expected** (2026-10-10): `All checks passed!` and `23 files already formatted`.

@@ -7,14 +7,14 @@ import os
 import tempfile
 from pathlib import Path
 
-from allocation_agent.activity.contract import ActivityWeek
+from allocation_agent.activity.contract import ActivityWeek, ActivityWeekV2
 
 
 def output_path(out_dir: Path, week: str) -> Path:
     return out_dir / f"{week}.json"
 
 
-def write_atomic(doc: ActivityWeek, out_dir: Path) -> Path:
+def write_atomic(doc: ActivityWeek | ActivityWeekV2, out_dir: Path) -> Path:
     """Writes `<out_dir>/<week>.json` so a reader sees the old file or the new one, never half.
 
     The body goes to a temporary file in the same folder, is flushed and fsynced, then renamed

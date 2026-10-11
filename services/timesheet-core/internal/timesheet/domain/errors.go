@@ -20,6 +20,8 @@ var (
 	// ErrDuplicateEntry is returned when the timesheet already has an entry
 	// for the same issue on the same day.
 	ErrDuplicateEntry = errors.New("entry for this issue and day already exists")
+	// ErrNoProject is returned when a report entry has no project.
+	ErrNoProject = errors.New("report entry has no project")
 	// ErrEmptyTimesheet is returned when a timesheet with no entries is
 	// proposed.
 	ErrEmptyTimesheet = errors.New("timesheet has no entries")

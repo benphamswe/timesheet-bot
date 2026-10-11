@@ -13,6 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	alloc "timesheet-bot/internal/allocation/domain"
 	"timesheet-bot/internal/shared/kernel"
 )
 
@@ -30,11 +31,60 @@ type Config struct {
 	SubmitTargets   []string          `yaml:"submit_targets"`   // TargetTempo, TargetMavenlink
 	Mavenlink       Mavenlink         `yaml:"mavenlink"`
 	Activity        Activity          `yaml:"activity"`
+	Allocation      Allocation        `yaml:"allocation"`
+	Report          Report            `yaml:"report"`
 
 	Location *time.Location             `yaml:"-"`
 	DailyCap kernel.Duration            `yaml:"-"`
 	PerKey   kernel.Duration            `yaml:"-"`
 	Channels map[string]kernel.IssueKey `yaml:"-"`
+}
+
+// Allocation modes accepted in allocation.mode.
+const (
+	ModeJiraKeys = "jira_keys" // 45m per Jira issue key per day, from any message (needs Jira)
+	ModeReport   = "report"    // the owner's own Slack timesheet summaries, no Jira (ADR-0012)
+)
+
+// Allocation is the `allocation` block.
+type Allocation struct {
+	Mode string `yaml:"mode"` // ModeJiraKeys (default) or ModeReport
+}
+
+// Report is the `report` block: where the owner writes timesheet summaries.
+// The allocation-agent collector reads the same keys to choose what it
+// collects, with the same rules: an absent include_self_dm is false, and the
+// channel loses a leading '#' and must match [a-z0-9._-]+.
+type Report struct {
+	Channel       string `yaml:"channel"`         // summary channel name without '#'
+	IncludeSelfDM bool   `yaml:"include_self_dm"` // also the owner's direct messages to themselves; absent means false
+	Parser        string `yaml:"parser"`          // ParserManual (default) or ParserLLM
+}
+
+// Report parsers accepted in report.parser. The `llm` block (provider, model,
+// base_url, timeout_seconds, max_retries) is read by the allocation-agent
+// collector only; Load ignores it like any key it does not know.
+const (
+	ParserManual = "manual" // the hand-written reportparser.Parser, in Go
+	ParserLLM    = "llm"    // report_lines the collector's LLM wrote into the activity file (version 2)
+)
+
+// ReportParserLLM reports whether report mode uses the collector's parsed lines.
+func (c *Config) ReportParserLLM() bool { return c.ReportMode() && c.Report.Parser == ParserLLM }
+
+var reportChannelRe = regexp.MustCompile(`^[a-z0-9._-]+$`)
+
+// ReportMode reports whether allocation.mode is ModeReport.
+func (c *Config) ReportMode() bool { return c.Allocation.Mode == ModeReport }
+
+// OwnerID is the id that owns timesheets: jira_account_id in jira_keys mode,
+// where it is also the Tempo author, and slack_user_id in report mode, which
+// has no Jira account.
+func (c *Config) OwnerID() string {
+	if c.ReportMode() {
+		return c.SlackUserID
+	}
+	return c.JiraAccountID
 }
 
 // Activity sources accepted in activity.source.
@@ -90,11 +140,12 @@ type Mavenlink struct {
 	Mappings           []MavenlinkMapping `yaml:"mappings"`
 }
 
-// MavenlinkMapping is one rule sending Jira issues to a Mavenlink project.
-// Set issue_key, jira_project, or both.
+// MavenlinkMapping is one rule sending entries to a Mavenlink project. Set
+// issue_key and/or jira_project for jira_keys mode, project for report mode.
 type MavenlinkMapping struct {
 	IssueKey    string `yaml:"issue_key"`
 	JiraProject string `yaml:"jira_project"`
+	Project     string `yaml:"project"` // report project name, matched case-insensitively
 	WorkspaceID int64  `yaml:"workspace_id"`
 	StoryID     int64  `yaml:"story_id"`
 	RoleID      int64  `yaml:"role_id"`
@@ -115,6 +166,8 @@ func Load(path string) (*Config, error) {
 		SubmitTargets: []string{TargetTempo},
 		Mavenlink:     Mavenlink{Auth: AuthBearer, SubmitForApproval: true},
 		Activity:      Activity{Source: ActivitySlack, FileDir: DefaultActivityFileDir},
+		Allocation:    Allocation{Mode: ModeJiraKeys},
+		Report:        Report{Parser: ParserManual},
 	}
 	if err := yaml.Unmarshal(raw, &c); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
@@ -139,7 +192,7 @@ func (c *Config) resolve(configDir string) error {
 	if c.PerKey, err = kernel.NewDuration(c.PerKeyMinutes); err != nil {
 		errs = append(errs, "per_key_minutes: "+err.Error())
 	}
-	if c.JiraAccountID == "" {
+	if c.JiraAccountID == "" && !c.ReportMode() {
 		errs = append(errs, "jira_account_id is required")
 	}
 	if c.SlackUserID == "" {
@@ -155,6 +208,7 @@ func (c *Config) resolve(configDir string) error {
 		c.Channels[strings.TrimPrefix(ch, "#")] = key
 	}
 	errs = append(errs, c.resolveTargets()...)
+	errs = append(errs, c.resolveAllocation()...)
 	switch c.Activity.Source {
 	case ActivitySlack, ActivityFile:
 	default:
@@ -176,6 +230,34 @@ func (c *Config) resolve(configDir string) error {
 		return fmt.Errorf("invalid config: %s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+func (c *Config) resolveAllocation() []string {
+	var errs []string
+	c.Report.Channel = strings.TrimPrefix(c.Report.Channel, "#")
+	if c.Report.Channel != "" && !reportChannelRe.MatchString(c.Report.Channel) {
+		errs = append(errs, fmt.Sprintf("report.channel: invalid channel name %q, want lowercase letters, digits, '.', '_' or '-'", c.Report.Channel))
+	}
+	if c.Report.Parser != ParserManual && c.Report.Parser != ParserLLM {
+		errs = append(errs, fmt.Sprintf("report.parser: unknown parser %q, want manual or llm", c.Report.Parser))
+	}
+	switch c.Allocation.Mode {
+	case ModeJiraKeys:
+		return errs
+	case ModeReport:
+	default:
+		return append(errs, fmt.Sprintf("allocation.mode: unknown mode %q, want jira_keys or report", c.Allocation.Mode))
+	}
+	if c.Report.Channel == "" && !c.Report.IncludeSelfDM {
+		errs = append(errs, "report: set report.channel, include_self_dm, or both, in report mode")
+	}
+	if c.SubmitsTo(TargetTempo) {
+		errs = append(errs, "submit_targets: tempo needs Jira issues, which report mode does not have; use [mavenlink]")
+	}
+	if c.Activity.Source != ActivityFile {
+		errs = append(errs, "activity.source: report mode reads the summaries the allocation-agent collector writes; set activity.source: file")
+	}
+	return errs
 }
 
 func (c *Config) resolveTargets() []string {
@@ -210,14 +292,32 @@ func (c *Config) resolveTargets() []string {
 	default:
 		errs = append(errs, fmt.Sprintf("mavenlink.auth: unknown mode %q, want bearer or cookie", m.Auth))
 	}
+	issueRules, projectRules := map[string]int{}, map[string]int{}
 	for i, r := range m.Mappings {
 		field := fmt.Sprintf("mavenlink.mappings[%d]", i)
-		if r.IssueKey == "" && r.JiraProject == "" {
-			errs = append(errs, field+": set issue_key, jira_project or both")
+		project := alloc.NormalizeReportText(r.Project)
+		if r.IssueKey == "" && r.JiraProject == "" && project == "" {
+			errs = append(errs, field+": set issue_key, jira_project or project")
+		}
+		if project != "" && (r.IssueKey != "" || r.JiraProject != "") {
+			errs = append(errs, field+": project (report mode) cannot be combined with issue_key or jira_project")
 		}
 		if r.IssueKey != "" {
 			if _, err := kernel.NewIssueKey(r.IssueKey); err != nil {
 				errs = append(errs, fmt.Sprintf("%s.issue_key: %v", field, err))
+			}
+			k := strings.ToUpper(r.IssueKey)
+			if first, ok := issueRules[k]; ok {
+				errs = append(errs, fmt.Sprintf("mavenlink.mappings[%d] and [%d]: both map issue_key %q; keep one", first, i, r.IssueKey))
+			} else {
+				issueRules[k] = i
+			}
+		}
+		if project != "" {
+			if first, ok := projectRules[project]; ok {
+				errs = append(errs, fmt.Sprintf("mavenlink.mappings[%d] and [%d]: both map project %q (names are compared ignoring case and spaces); keep one", first, i, r.Project))
+			} else {
+				projectRules[project] = i
 			}
 		}
 		if r.JiraProject != "" && !jiraProjectRe.MatchString(r.JiraProject) {

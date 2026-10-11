@@ -126,7 +126,7 @@ func TestCollectRejectsInvalidFiles(t *testing.T) {
 	}{
 		{fixture: "wrong-week", want: `week "2026-W40", want "2026-W41"`},
 		{fixture: "wrong-user", want: `slack_user_id "U9999", want slack_user_id "U0123ABCD"`},
-		{fixture: "schema-v2", want: "schema_version 2, want 1"},
+		{fixture: "schema-v3", want: "schema_version 3, want 1 or 2"},
 		{fixture: "bad-json", want: "parse activity file"},
 		{fixture: "bad-posted-at", want: "messages[0] (ts 1791135000.000100): posted_at"},
 	}
@@ -199,5 +199,107 @@ func TestCollectMatchesSlackCollector(t *testing.T) {
 	}
 	if len(fromFile) == 0 || !reflect.DeepEqual(fromFile, fromSlack) {
 		t.Errorf("file Collect(%v) =\n%+v\nwant the Slack collector's\n%+v", week41, fromFile, fromSlack)
+	}
+}
+
+// Version 2 adds parser and report_lines; its messages read as in version 1.
+func TestCollectReadsVersion2Messages(t *testing.T) {
+	t.Parallel()
+	v1, err := collect(t, "happy")
+	if err != nil {
+		t.Fatalf("Collect(happy) error = %v, want nil", err)
+	}
+	v2, err := collect(t, "v2")
+	if err != nil {
+		t.Fatalf("Collect(v2) error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(v2, v1) {
+		t.Errorf("Collect(v2) =\n%+v\nwant the same activities as version 1\n%+v", v2, v1)
+	}
+}
+
+func reportLines(t *testing.T, fixture string) ([]kernel.ReportLine, error) {
+	t.Helper()
+	c := fileactivity.NewCollector(filepath.Join("testdata", fixture), userID, hoChiMinh(t))
+	return c.ReportLines(t.Context(), week41)
+}
+
+func TestReportLinesReadsVersion2(t *testing.T) {
+	t.Parallel()
+	got, err := reportLines(t, "v2")
+	if err != nil {
+		t.Fatalf("ReportLines(v2) error = %v, want nil", err)
+	}
+	want := []kernel.ReportLine{
+		{Date: "2026-10-05", Project: "Atlas", Minutes: 240, Notes: "API review", SourceTS: "1791135000.000100", SourceChannelID: "C01"},
+		{Date: "2026-10-05", Project: "Atlas", Minutes: 300, Notes: "release", SourceTS: "1791135000.000100", SourceChannelID: "C01"},
+		{Date: "2026-10-06", Project: "Beacon", Minutes: 60, Notes: "standup", SourceTS: "1791252000.000100", SourceChannelID: "D01"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ReportLines(v2) =\n%+v\nwant\n%+v (project trimmed, unknown fields ignored)", got, want)
+	}
+
+	empty, err := reportLines(t, "v2-empty-lines")
+	if err != nil || len(empty) != 0 {
+		t.Errorf("ReportLines(v2-empty-lines) = %+v, %v, want no lines and no error (a week without summaries)", empty, err)
+	}
+}
+
+func TestReportLinesNeedsParsedLines(t *testing.T) {
+	t.Parallel()
+	for _, fixture := range []string{"happy", "v2-no-lines"} {
+		t.Run(fixture, func(t *testing.T) {
+			t.Parallel()
+			_, err := reportLines(t, fixture)
+			if err == nil || !strings.Contains(err.Error(), "activity file has no report_lines: re-run the collector with report.parser: llm") {
+				t.Errorf("ReportLines(%s) error = %v, want the no-report_lines error", fixture, err)
+			}
+		})
+	}
+}
+
+func TestReportLinesRejectsInvalidLines(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		fixture, want string
+	}{
+		{fixture: "v2-bad-minutes", want: "minutes 20"},
+		{fixture: "v2-zero-minutes", want: "minutes 0"},
+		{fixture: "v2-weekend", want: `date "2026-10-10"`},
+		{fixture: "v2-outside-week", want: "date 2026-10-13 is outside 2026-W41"},
+		{fixture: "v2-bad-date", want: `date "06/10/2026"`},
+		{fixture: "v2-empty-project", want: "empty project"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.fixture, func(t *testing.T) {
+			t.Parallel()
+			got, err := reportLines(t, tt.fixture)
+			if err == nil {
+				t.Fatalf("ReportLines(%s) = %+v, want an error", tt.fixture, got)
+			}
+			// The bad line is the second; the first, valid line does not hide it.
+			if !strings.Contains(err.Error(), "report_lines[1] (source_ts 1791999999.000100)") || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("ReportLines(%s) error = %q, want it to name report_lines[1], its source_ts and %q", tt.fixture, err, tt.want)
+			}
+			if strings.Contains(err.Error(), "PRIVATE-NOTES") {
+				t.Errorf("ReportLines(%s) error = %q, want it to omit the line's notes", tt.fixture, err)
+			}
+		})
+	}
+}
+
+func TestReportLinesFailsLikeCollect(t *testing.T) {
+	t.Parallel()
+	for _, fixture := range []string{"schema-v3", "wrong-week", "wrong-user", "bad-json"} {
+		t.Run(fixture, func(t *testing.T) {
+			t.Parallel()
+			if _, err := reportLines(t, fixture); err == nil {
+				t.Errorf("ReportLines(%s) error = nil, want the same error as Collect", fixture)
+			}
+		})
+	}
+	c := fileactivity.NewCollector(t.TempDir(), userID, hoChiMinh(t))
+	if _, err := c.ReportLines(t.Context(), week41); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("ReportLines(missing file) error = %v, want fs.ErrNotExist", err)
 	}
 }

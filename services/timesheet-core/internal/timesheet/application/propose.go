@@ -41,9 +41,10 @@ type PolicyFailure struct {
 // ProposeResult is the outcome of [ProposeHandler.Handle]: the accepted
 // timesheet and proposal, and the policies that failed before it.
 type ProposeResult struct {
-	Timesheet *domain.Timesheet
-	Proposal  alloc.Proposal
-	Failures  []PolicyFailure
+	Timesheet  *domain.Timesheet
+	Proposal   alloc.Proposal
+	Failures   []PolicyFailure
+	Placements map[string]MavenlinkPlacement // by entry ID; nil unless Mavenlink is a submit target
 }
 
 // ProposeHandler builds a week's timesheet from activity. Policies are tried in
@@ -52,7 +53,9 @@ type ProposeResult struct {
 type ProposeHandler struct {
 	Repo            domain.Repository
 	Source          ActivitySource
-	Issues          IssueDirectory
+	Reports         ReportLineSource  // report.parser: llm only; fills alloc.Input.ReportLines
+	Issues          IssueDirectory    // nil in report mode, which has no Jira issues
+	Placements      PlacementResolver // set when Mavenlink is a submit target: plan shows where time goes
 	Policies        []alloc.Policy
 	Clock           kernel.Clock
 	UserAccountID   string
@@ -87,14 +90,20 @@ func (h *ProposeHandler) Handle(ctx context.Context, cmd ProposeCommand) (Propos
 		return ProposeResult{}, fmt.Errorf("collect activity: %w", err)
 	}
 	issues := newIssueCache(h.Issues)
-	acts, err = issues.dropUnknownKeys(ctx, acts)
-	if err != nil {
-		return ProposeResult{}, err
+	if h.Issues != nil {
+		if acts, err = issues.dropUnknownKeys(ctx, acts); err != nil {
+			return ProposeResult{}, err
+		}
 	}
 
 	in := alloc.Input{
 		Week: cmd.Week, Activities: acts, ChannelDefaults: h.ChannelDefaults,
 		DailyCap: h.DailyCap, PerKey: h.PerKey,
+	}
+	if h.Reports != nil {
+		if in.ReportLines, err = h.Reports.ReportLines(ctx, cmd.Week); err != nil {
+			return ProposeResult{}, fmt.Errorf("collect report lines: %w", err)
+		}
 	}
 	var res ProposeResult
 	for _, p := range h.Policies {
@@ -112,6 +121,11 @@ func (h *ProposeHandler) Handle(ctx context.Context, cmd ProposeCommand) (Propos
 	if res.Timesheet == nil {
 		return res, fmt.Errorf("%w: %v", ErrNoValidProposal, res.Failures)
 	}
+	if h.Placements != nil {
+		if err := h.place(&res); err != nil {
+			return res, err
+		}
+	}
 
 	if cmd.DryRun {
 		return res, nil
@@ -124,11 +138,44 @@ func (h *ProposeHandler) Handle(ctx context.Context, cmd ProposeCommand) (Propos
 	return res, h.Repo.Save(ctx, res.Timesheet)
 }
 
+// place resolves the Mavenlink project of every entry, so the owner sees
+// where time will go before submitting. A failure fails the plan; a project
+// that fell back to the default adds one warning.
+func (h *ProposeHandler) place(res *ProposeResult) error {
+	res.Placements = map[string]MavenlinkPlacement{}
+	warned := map[string]bool{}
+	var errs []error
+	for _, e := range res.Timesheet.Entries() {
+		p, err := h.Placements.Resolve(e.IssueKey, e.Project)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		res.Placements[e.ID] = p
+		subject := e.Project
+		if e.IssueKey != "" {
+			subject = e.IssueKey.String()
+		}
+		if p.Fallback && !warned[subject] {
+			warned[subject] = true
+			res.Proposal.Warnings = append(res.Proposal.Warnings, fmt.Sprintf(
+				"%q has no mavenlink.mappings rule; its time goes to default_workspace_id %d", subject, p.WorkspaceID))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // build runs a proposal through the aggregate; every invariant violation is reported.
 func (h *ProposeHandler) build(ctx context.Context, week kernel.WeekID, policy string, p alloc.Proposal, issues *issueCache) (*domain.Timesheet, error) {
 	ts := domain.New(uuid.NewString(), h.UserAccountID, week, h.DailyCap, policy, h.Clock.Now())
 	var errs []error
 	for _, e := range p.Entries {
+		if e.Project != "" {
+			if err := ts.AddReportEntry(e.Project, e.Day, e.Duration, e.Description); err != nil {
+				errs = append(errs, err)
+			}
+			continue
+		}
 		issue, err := issues.resolve(ctx, e.IssueKey)
 		if err != nil {
 			errs = append(errs, err)
@@ -159,6 +206,9 @@ func newIssueCache(dir IssueDirectory) *issueCache {
 }
 
 func (c *issueCache) resolve(ctx context.Context, k kernel.IssueKey) (Issue, error) {
+	if c.dir == nil {
+		return Issue{}, fmt.Errorf("%w: %s (no Jira in report mode)", ErrIssueNotFound, k)
+	}
 	if i, ok := c.found[k]; ok {
 		return i, nil
 	}

@@ -12,7 +12,7 @@ func planCmd(load loader) *cobra.Command {
 	var dryRun, force bool
 	cmd := &cobra.Command{
 		Use:   "plan",
-		Short: "Collect Slack activity and propose the week's timesheet",
+		Short: "Collect Slack activity (or your Slack reports) and propose the week's timesheet",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			app, err := load(cmd, Needs{DB: !dryRun})
 			if err != nil {
@@ -30,8 +30,14 @@ func planCmd(load loader) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := renderTimesheet(cmd.OutOrStdout(), res.Timesheet, res.Proposal.Reasoning); err != nil {
+			if err := renderTimesheet(cmd.OutOrStdout(), res.Timesheet, res.Proposal.Reasoning, res.Placements); err != nil {
 				return fmt.Errorf("render timesheet: %w", err)
+			}
+			if len(res.Proposal.Warnings) > 0 {
+				fmt.Fprintln(cmd.OutOrStdout())
+			}
+			for _, w := range res.Proposal.Warnings {
+				fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", w)
 			}
 			if dryRun {
 				fmt.Fprintln(cmd.OutOrStdout(), "\ndry run: nothing saved")

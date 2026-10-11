@@ -18,6 +18,8 @@ Every package here is a black-box test package (`package <name>_test`). It impor
 | `unit/adapters/tempo/` | Tempo client against `httptest` | `internal/timesheet/infrastructure/tempo` |
 | `unit/adapters/slack/` | Slack collector with a fake `Searcher` | `internal/activity/infrastructure/slack` |
 | `unit/adapters/file/` | Week-file collector against JSON fixtures in `testdata/<case>/2026-W41.json`, plus parity with the Slack collector | `internal/activity/infrastructure/file` |
+| `unit/interfaces/cli/` | `plan` output through `cli.NewRoot` with in-memory handlers: the `MAVENLINK` column and warnings | `internal/interfaces/cli` |
+| `unit/adapters/reportparser/` | Report parser; the table of cases is skipped until the owner writes `Parse` | `internal/allocation/infrastructure/reportparser` |
 | `unit/adapters/mavenlink/` | Mavenlink client and its bearer and cookie auth against `httptest` | `internal/timesheet/infrastructure/mavenlink` |
 | `integration/postgres/` | repository round trip, optimistic locking, outbox (`//go:build integration`) | `internal/timesheet/infrastructure/postgres` |
 | `architecture/` | dependency rules and the no-wall-clock rule, read from the source of `internal/` and `cmd/` | all production packages |

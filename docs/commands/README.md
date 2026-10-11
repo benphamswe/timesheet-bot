@@ -12,11 +12,11 @@ First-time setup lives in [development setup](../development/setup.md). Everythi
 | [lint-and-format.md](lint-and-format.md) | `golangci-lint run`, `fmt`, `config verify`, `go vet`, `gofmt` |
 | [security-and-dependencies.md](security-and-dependencies.md) | `govulncheck`, `go mod tidy`, `go list`, read-only version and supply-chain lookups (proxy, PyPI, deps.dev, GitHub advisories) |
 | [database.md](database.md) | Local Postgres container, `migrate up` and `down`, `psql`, backup |
-| [docker-and-runtime.md](docker-and-runtime.md) | Image build, compose checks, the local `.env` file, `make run` (CLI via `go run`), and the `timesheet` CLI subcommands and flags |
+| [docker-and-runtime.md](docker-and-runtime.md) | Image builds (`app`, `collector`), compose checks, the per-service `.env` files, `make run` (CLI via `go run`), and the `timesheet` CLI subcommands and flags |
 | [ci.md](ci.md) | What `.github/workflows/ci.yml` runs and how to reproduce each job locally |
 | [contracts.md](contracts.md) | `make proto-lint`, `buf lint`, `buf breaking` [planned: P3] |
 | [claude-code-tooling.md](claude-code-tooling.md) | Testing hooks, `bash -n`, and the slash commands |
-| [activity-collection.md](activity-collection.md) | Slack activity collector: connector check, `make collect`, contract checks |
+| [activity-collection.md](activity-collection.md) | Slack activity collector: connector check, auth-variable check, `make collect`, contract checks, the `collector` container (not usable yet) |
 | [git-and-github.md](git-and-github.md) | Read-only git, the owner's review before a commit, `gh` for the backlog mirror |
 
 ## How each entry is written
@@ -34,7 +34,7 @@ Commands that write to an external service, push, or need secrets are marked **N
 
 - Run Go and service `make` commands inside `services/timesheet-core/`. From the repository root, `make <target>` runs the target in every service.
 - `make ci` is green (confirmed 2026-10-09): lint reports 0 issues, 5 tests are skipped (see [known skipped tests](../architecture/testing.md#known-skipped-tests)), and `make cover` prints a total. Every Go test lives in `services/timesheet-core/test/` ([ADR-0009](../adr/0009-tests-in-separate-tree.md)); see [build and test](build-and-test.md) and [lint and format](lint-and-format.md).
-- Refer to secrets by environment variable name only, for example `${SLACK_USER_TOKEN}`. They live in `.env` (owner-only, gitignored) or `~/.zshrc` (see [configuration](../operations/configuration.md#where-tokens-can-live)).
+- Refer to secrets by environment variable name only, for example `${SLACK_USER_TOKEN}`. They live in the service's `.env` (`services/timesheet-core/.env` or `services/allocation-agent/.env`; owner-only, gitignored) or `~/.zshrc` (see [configuration](../operations/configuration.md#where-tokens-can-live)).
 - Any command that commits, pushes, or writes to GitHub needs the owner's approval of the exact content first.
 
 ## From the repository root

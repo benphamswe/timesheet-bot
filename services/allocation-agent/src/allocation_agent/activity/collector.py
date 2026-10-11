@@ -7,9 +7,11 @@ from datetime import datetime, tzinfo
 
 from allocation_agent.activity.contract import ActivityWeek, RawSearchHit, ts_sort_key
 from allocation_agent.activity.normalize import Normalizer, normalize_messages
+from allocation_agent.activity.sources import ReportScope
 from allocation_agent.activity.week import IsoWeek
 
-Fetch = Callable[[IsoWeek, str], Awaitable[list[RawSearchHit]]]
+# Returns the merged hits of every source in the scope, deduped by (channel_id, ts).
+Fetch = Callable[[IsoWeek, str, ReportScope], Awaitable[list[RawSearchHit]]]
 Clock = Callable[[], datetime]
 
 
@@ -36,11 +38,12 @@ async def collect_week(
     *,
     slack_user_id: str,
     tz: tzinfo,
+    scope: ReportScope,
     fetch: Fetch,
     clock: Clock,
     normalize: Normalizer = normalize_messages,
 ) -> ActivityWeek:
-    raw = await fetch(week, slack_user_id)
+    raw = await fetch(week, slack_user_id, scope)
     return build_activity_week(
         raw, week=week, slack_user_id=slack_user_id, tz=tz, now=clock(), normalize=normalize
     )

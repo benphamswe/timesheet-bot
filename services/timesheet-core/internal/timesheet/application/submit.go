@@ -45,6 +45,10 @@ type SubmitHandler struct {
 	UserAccountID string
 }
 
+// errNoIssueForTempo fails a report entry sent to Tempo, which logs time on
+// Jira issues only.
+var errNoIssueForTempo = errors.New("tempo needs a Jira issue; report entries go to Mavenlink only")
+
 // errNoTargets is returned when neither Tempo nor Mavenlink is configured.
 var errNoTargets = errors.New("no submit target configured")
 
@@ -111,6 +115,13 @@ func (h *SubmitHandler) submitTempo(ctx context.Context, ts *domain.Timesheet, r
 		if e.SubmittedTo(domain.TargetTempo) {
 			continue
 		}
+		if e.IssueKey == "" {
+			// A report entry has no Jira issue; config rejects tempo in report mode.
+			if err := h.record(ctx, ts, e.ID, domain.TargetTempo, "", errNoIssueForTempo, res); err != nil {
+				return err
+			}
+			continue
+		}
 		id, err := h.Gateway.Create(ctx, Worklog{
 			IssueID:         e.IssueID,
 			Day:             e.Day,
@@ -170,7 +181,7 @@ func (h *SubmitHandler) submitMavenlink(ctx context.Context, ts *domain.Timeshee
 }
 
 func (h *SubmitHandler) createMavenlink(ctx context.Context, e domain.Entry) (RemoteTimeEntry, error) {
-	p, err := h.Mavenlink.Placements.Resolve(e.IssueKey)
+	p, err := h.Mavenlink.Placements.Resolve(e.IssueKey, e.Project)
 	if err != nil {
 		return RemoteTimeEntry{}, err
 	}

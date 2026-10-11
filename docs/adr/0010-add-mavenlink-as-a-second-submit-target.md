@@ -46,7 +46,23 @@ The owner cannot get an OAuth app registered. Their browser session works, and t
 5. **Mapping:**
    - Rules in `mavenlink.mappings` map a Jira issue key or Jira project to a Mavenlink project (`workspace_id`), with an optional task, role and billable flag.
    - Defaults catch the rest.
-   - `MavenlinkMapping.Resolve` is `TODO(owner)`.
+   - `MavenlinkMapping.Resolve` follows the owner's policy (2026-10-10, implemented on the owner's request):
+     - **Matching:**
+       - `issue_key` compares the whole key, ignoring case.
+       - `jira_project` compares the key's prefix before the first `-`.
+       - `project` (report mode, [ADR-0012](0012-report-mode-slack-summaries-to-mavenlink-without-jira.md)) compares names after `NormalizeReportText`: case ignored, white space trimmed and collapsed, the same normalization dedup uses.
+     - **Precedence:** the most specific rule wins (`issue_key`, then `project`, then `jira_project`); within one kind, the first rule in config order wins.
+     - **Config validation:** `config.Load` rejects two rules with the same `issue_key` or the same normalized `project`, naming both indexes, and a rule that combines `project` with a Jira field.
+     - **No match:**
+       - With `default_workspace_id` set, the entry goes to the default project, flagged as a fallback.
+       - Without it, the error is `no Mavenlink mapping for project "<name>": add a mavenlink.mappings rule or set default_workspace_id` (or `for issue "<key>"`). Notes are never included.
+     - **Role:** the rule's `role_id`, else `default_role_id`.
+     - **Task:** the rule's `story_id`, else `default_story_id` only when the entry lands in the default project, because a task belongs to one project.
+     - **Billable:** the rule's flag, else Mavenlink's default.
+   - `plan` and `plan --dry-run` resolve every entry when Mavenlink is a submit target:
+     - a `MAVENLINK` column shows the project and task;
+     - a `warning:` names each project or issue that fell back to the default;
+     - a resolution error fails the plan, before anything is saved.
 6. **Auth modes:** `mavenlink.auth` picks one. The endpoint code is shared and only the `Auth` strategy differs.
    - **`bearer`** (default, documented): `MAVENLINK_API_TOKEN`, base URL `https://api.mavenlink.com/api/v1`.
    - **`cookie`** (fallback, undocumented and unsupported by Kantata): `MAVENLINK_SESSION_COOKIE` holds the full raw `Cookie` header of a logged-in browser. The base URL defaults to `https://27global.mavenlink.com/api/v1`, because the cookie is valid only on the account's host.
@@ -85,7 +101,6 @@ The owner cannot get an OAuth app registered. Their browser session works, and t
   - `SubmitAttempts` counts failures across both targets.
   - The timesheet is not split per target in the status: it is `approved` until both are done.
 - **Follow-up:**
-  - The owner implements `MavenlinkMapping.Resolve` and removes the skip on `TestMavenlinkMappingResolve`.
   - Confirm the cookie-mode assumptions above in DevTools on a real week.
   - Verify the API facts with `official-source-verifier`.
   - Move this ADR to `Accepted`.

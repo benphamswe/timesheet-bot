@@ -61,12 +61,12 @@ Notes on the table:
 
 ## Known skipped tests
 
-Five tests are skipped on 2026-10-09. Each skip message gives the reason, and the skip is removed when the fix lands.
+Five tests are skipped on 2026-10-10. Each skip message gives the reason, and the skip is removed when the fix lands.
 
 | Test | Location | Reason |
 |---|---|---|
 | `TestRulePolicyScalesOverCapDay` | `test/unit/allocation/domain/rule_test.go` | `TODO(owner)`: `scaleDay` is the owner's task (AC-002.3, US-002-T2). Only the owner removes this skip. |
-| `TestMavenlinkMappingResolve` | `test/unit/timesheet/application/mavenlink_mapping_test.go` | `TODO(owner)`: `MavenlinkMapping.Resolve` is the owner's task ([ADR-0010](../adr/0010-add-mavenlink-as-a-second-submit-target.md)). Only the owner removes this skip; adjust the cases to the rule chosen. |
+| `TestParse` | `test/unit/adapters/reportparser/parser_test.go` | `TODO(owner)`: `reportparser.Parser.Parse` is the owner's task ([ADR-0012](../adr/0012-report-mode-slack-summaries-to-mavenlink-without-jira.md)). Only the owner removes this skip; change the cases to the report format chosen. |
 | `TestCreateDoesNotResendWorklogOn5xx` | `test/unit/adapters/tempo/client_test.go` | BUG H2: the retry transport re-sends a Tempo POST on 5xx (AC-005.3). Fixed by US-005-T2. |
 | `TestMarkEntrySubmittedKeepsFirstWorklogID` | `test/unit/timesheet/domain/timesheet_test.go` | BUG exactly-once: a second `MarkEntrySubmitted` with a different worklog id is accepted instead of refused. Fixed by US-028; the owner decided the rule: the same id is a no-op, a different id returns `ErrEntryAlreadySubmitted`. |
 | `TestRetryReplaysNoBodyRequest` | `test/unit/httpx/retry_test.go` | BUG NoBody: `RetryTransport` rejects a request whose body is `http.NoBody` (it has no `GetBody`) with `ErrNoRewind` instead of retrying it (AC-017.5). |

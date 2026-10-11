@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timesheet-bot.local/api/activity/activity-week.v2.schema.json",
+  "title": "Activity week, schema version 2",
+  "description": "Version 1 plus the report lines an LLM parsed from the owner's Slack timesheet summaries (report.parser: llm). Written by services/allocation-agent (collect) to <out-dir>/<week>.json and read by services/timesheet-core. report.parser: manual keeps writing version 1. parser and report_lines are optional here so a reader can accept a version 2 file without them, but the collector always writes both. Readers ignore unknown fields. A JSON Schema cannot check that a line's date is a Monday-Friday of week; the collector and the Go reader both check it. ADR-0011, ADR-0014.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "week",
+    "slack_user_id",
+    "generated_at",
+    "source",
+    "messages"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "week": {
+      "description": "ISO-8601 week, YYYY-Www.",
+      "type": "string",
+      "pattern": "^\\d{4}-W(0[1-9]|[1-4]\\d|5[0-3])$"
+    },
+    "slack_user_id": {
+      "description": "Slack member id whose messages these are.",
+      "type": "string",
+      "pattern": "^[UW][A-Z0-9]+$"
+    },
+    "generated_at": {
+      "$ref": "#/$defs/rfc3339"
+    },
+    "source": {
+      "const": "slack-mcp"
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/message"
+      }
+    },
+    "parser": {
+      "$ref": "#/$defs/parser"
+    },
+    "report_lines": {
+      "description": "Report lines in message order, then in the order the summary lists them.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/report_line"
+      }
+    }
+  },
+  "$defs": {
+    "rfc3339": {
+      "description": "RFC 3339 date-time with a UTC offset (Z or +hh:mm).",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "slack_ts": {
+      "description": "Slack message timestamp, seconds.micro, e.g. 1760000000.000100.",
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$"
+    },
+    "message": {
+      "type": "object",
+      "required": [
+        "ts",
+        "channel_id",
+        "channel_name",
+        "posted_at",
+        "text",
+        "permalink",
+        "thread_ts"
+      ],
+      "properties": {
+        "ts": {
+          "$ref": "#/$defs/slack_ts"
+        },
+        "channel_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel_name": {
+          "description": "Channel name without #; empty when the source did not return one (for example a DM).",
+          "type": "string"
+        },
+        "posted_at": {
+          "description": "The ts as a date-time in the configured timezone, whole seconds.",
+          "$ref": "#/$defs/rfc3339"
+        },
+        "text": {
+          "type": "string"
+        },
+        "permalink": {
+          "description": "Message permalink; empty when the source did not return one.",
+          "type": "string"
+        },
+        "thread_ts": {
+          "description": "Parent ts for a thread reply, otherwise null.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/slack_ts"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "parser": {
+      "description": "How report_lines were made.",
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "llm",
+            "manual"
+          ]
+        },
+        "provider": {
+          "description": "LLM provider name from llm.provider, e.g. deepseek.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "Model the provider used, e.g. deepseek-flash.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "llm"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "provider",
+          "model"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "report_line": {
+      "description": "One project on one day, as the owner wrote it. Mirrors the Go domain: minutes are a positive multiple of 15 (kernel.NewDuration), the date is a Monday-Friday of week, the project is not blank.",
+      "type": "object",
+      "required": [
+        "date",
+        "project",
+        "minutes",
+        "notes",
+        "source_ts",
+        "source_channel_id"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "project": {
+          "description": "Project name as written, trimmed.",
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "minutes": {
+          "type": "integer",
+          "minimum": 15,
+          "multipleOf": 15
+        },
+        "notes": {
+          "description": "What was done, as written; may be empty.",
+          "type": "string"
+        },
+        "source_ts": {
+          "description": "ts of the message the line came from.",
+          "$ref": "#/$defs/slack_ts"
+        },
+        "source_channel_id": {
+          "description": "channel_id of that message.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

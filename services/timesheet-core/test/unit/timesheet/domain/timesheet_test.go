@@ -526,3 +526,53 @@ func TestMarkEntrySubmittedUnknownTarget(t *testing.T) {
 		t.Errorf("Snapshot() after unknown target = %+v, want %+v", after, before)
 	}
 }
+
+func TestAddReportEntryKeepsEveryLineAndAllowsOverCap(t *testing.T) {
+	t.Parallel()
+	ts := newDraft(t)
+	mustOK(t, ts.AddReportEntry("Atlas", mon, kernel.MustDuration(360), "release"))
+	mustOK(t, ts.AddReportEntry("Atlas", mon, kernel.MustDuration(180), "hotfix")) // same project and day; 9h > 8h cap
+	mustOK(t, ts.AddReportEntry("Beacon", tue, min45, ""))
+
+	got := ts.Entries()
+	want := []struct{ id, project, notes string }{
+		{"ts-1/2026-10-05/report-01", "Atlas", "release"},
+		{"ts-1/2026-10-05/report-02", "Atlas", "hotfix"},
+		{"ts-1/2026-10-06/report-01", "Beacon", ""},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("Entries() = %+v, want %d entries", got, len(want))
+	}
+	for i, w := range want {
+		if e := got[i]; e.ID != w.id || e.Project != w.project || e.Description != w.notes || e.IssueKey != "" || e.IssueID != 0 {
+			t.Errorf("Entries()[%d] = %+v, want ID %s, project %s, notes %q and no issue", i, e, w.id, w.project, w.notes)
+		}
+	}
+	if got := ts.DayTotal(mon); got != 540 {
+		t.Errorf("DayTotal(%s) = %d, want 540 (report entries are not capped)", mon, got)
+	}
+}
+
+func TestAddReportEntryRejections(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		status  domain.Status
+		project string
+		day     kernel.WorkDay
+		want    error
+	}{
+		{name: "not a draft", status: domain.StatusAwaitingApproval, project: "Atlas", day: mon, want: domain.ErrNotDraft},
+		{name: "outside the week", status: domain.StatusDraft, project: "Atlas", day: week.Prev().Days()[0], want: domain.ErrDayOutsideWeek},
+		{name: "no project", status: domain.StatusDraft, project: "", day: mon, want: domain.ErrNoProject},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ts := inStatus(t, tt.status)
+			if err := ts.AddReportEntry(tt.project, tt.day, min45, ""); !errors.Is(err, tt.want) {
+				t.Errorf("AddReportEntry(%q, %s) error = %v, want %v", tt.project, tt.day, err, tt.want)
+			}
+		})
+	}
+}

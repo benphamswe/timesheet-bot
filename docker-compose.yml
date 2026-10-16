@@ -2,7 +2,7 @@ services:
   # The db service uses no ${VAR} interpolation, so it needs no .env file at all. Its values are
   # local-only defaults; the Postgres image applies them only when the volume is first created.
   db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: timesheet
       POSTGRES_PASSWORD: timesheet # local-only database, not exposed beyond localhost
